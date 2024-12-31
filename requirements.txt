@@ -1,0 +1,7 @@
+customtkinter
+selenium
+chess
+pyautogui
+keyboard
+tk
+bs4
