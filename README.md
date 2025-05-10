@@ -116,7 +116,7 @@ Chess_Bot/
 ├── src/                    # Main source code directory
 │   ├── assets/
 │   │   └── app_icon.ico    # Application icon
-│   ├── .env.example        # Example for .env file
+│   ├── .env                # .env file
 │   ├── main.py             # Main application entry point
 │   ├── config.py           # Configurations and constants
 │   ├── ui.py               # GUI logic (ChessApp class)
