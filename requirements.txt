@@ -5,3 +5,5 @@ pyautogui
 keyboard
 tk
 bs4
+python-dotenv
+webdriver-manager
