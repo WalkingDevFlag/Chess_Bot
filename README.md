@@ -1,139 +1,168 @@
 # Chess.com AI Helper
 
-This Python application provides a graphical user interface (GUI) to interact with chess.com, extract game information, and get move suggestions from an external UCI-compliant chess engine (defaulting to Ethereal). It's designed as a tool for analysis and experimentation.
+This Python application provides a graphical user interface (GUI) to interact with chess.com, extract game information, and get move suggestions from an external UCI-compliant chess engine (defaulting to Ethereal-9.00). It's designed as a tool for analysis, experimentation, and potentially assisting with puzzles or fast-paced games against computer opponents.
 
-**Disclaimer:** Using this tool to cheat in rated games on chess.com or any other platform is against their terms of service and can lead to account suspension or other penalties. This project is intended for educational and personal use with computer opponents or for analyzing your own games. Please use responsibly.
+**Disclaimer:** Using this tool to cheat in rated games on chess.com or any other platform is against their terms of service and can lead to account suspension or other penalties. This project is intended for educational purposes and personal use against computer opponents or for analyzing your own games. **Please use responsibly and ethically.**
 
 ## Features
 
-*   **Browser Automation:** Opens chess.com in a browser window (defaults to Incognito).
-*   **Automatic Login:** Logs into your chess.com account using credentials stored in a `.env` file.
-*   **Game Scraping:**
+*   **Browser Automation:** Opens chess.com in a browser window (defaults to Incognito mode for privacy).
+*   **Automatic Login:** Securely logs into your chess.com account using credentials stored locally in a `.env` file.
+*   **Real-time Game Scraping:**
     *   Extracts the move list from an ongoing game on chess.com.
-    *   Reconstructs a virtual board based on the scraped moves.
+    *   Reconstructs a virtual board (`python-chess` Board object) based on the scraped moves.
 *   **FEN Generation:** Displays the Forsyth-Edwards Notation (FEN) for the current virtual board state.
-*   **Engine Integration:**
-    *   Communicates with a UCI-compliant chess engine (e.g., Ethereal).
-    *   Sends the current FEN to the engine to get the best move suggestion.
-*   **User Interface:**
-    *   Built with CustomTkinter for a modern look and feel.
-    *   Separate output areas for user-facing messages and detailed debug logs.
-    *   Buttons for each core functionality.
+*   **UCI Engine Integration:**
+    *   Communicates with any UCI-compliant chess engine (defaults to Ethereal-9.00).
+    *   Sends the current FEN to the engine and retrieves the suggested best move.
+*   **User-Friendly Interface:**
+    *   Built with CustomTkinter for a modern and responsive look and feel.
+    *   Clear separation of user-facing messages and detailed debug logs.
+    *   Dedicated buttons for each core functionality: Open Browser, Login, Get Board, Get FEN, Run Bot, Clear Output, Show/Hide Debug Logs.
 
-## Project Structure
+## Getting Started
 
-```
-chess_ai_helper/
-├── .env                  # Stores chess.com credentials (create this yourself)
-├── main.py               # Main application entry point
-├── config.py             # Loads configurations and constants
-├── ui.py                 # CustomTkinter GUI (ChessApp class)
-├── browser_automation.py # Selenium browser interactions (BrowserManager class)
-└── engine_communication.py # UCI engine interaction (ChessEngineCommunicator class)
-└── Ethereal-9.00         # (or Ethereal-9.00.exe for Windows) Your engine executable
-```
+There are two ways to use this application:
 
-## Setup and Installation
+**1. Running the Packaged Release (Recommended for most users):**
 
-### Prerequisites
+This version is a standalone executable and does not require Python or any dependencies to be installed (other than Google Chrome).
 
-*   Python 3.8 or higher
-*   Google Chrome browser installed
-*   A UCI-compliant chess engine (e.g., Ethereal, Stockfish). The script defaults to looking for `Ethereal-9.00` (or `Ethereal-9.00.exe` on Windows) in the project's root directory or your system PATH.
+*   **Prerequisites:**
+    *   Windows Operating System (currently packaged for Windows).
+    *   Google Chrome browser installed.
+*   **Installation & Usage:**
+    1.  Go to the [**Releases Page**](https://github.com/WalkingDevFlag/Chess_Bot/releases) of this repository.
+    2.  Download the latest `.zip` file (e.g., `ChessAIHelper-vX.X.X-windows.zip`).
+    3.  Extract the ZIP file to a folder on your computer.
+    4.  **Important:** Inside the extracted `ChessAIHelper` folder (the one containing `ChessAIHelper.exe`), create a new file named `.env`.
+    5.  Open the `.env` file with a text editor and add your chess.com credentials. You can copy the structure from the included `.env.example` file:
+        ```env
+        CHESS_USERNAME="YOUR_CHESS.COM_USERNAME"
+        CHESS_PASSWORD="YOUR_CHESS.COM_PASSWORD"
+        ```
+        Replace the placeholder text with your actual username and password.
+    6.  Run `ChessAIHelper.exe`.
 
-### Steps
+**2. Running from Source (For developers or advanced users):**
 
-1.  **Clone the Repository (or download files):**
-    ```bash
-    git clone https://github.com/WalkingDevFlag/Chess_Bot.git
-    cd Chess_Bot
-    ```
+*   **Prerequisites:**
+    *   Python 3.8 or higher.
+    *   Google Chrome browser installed.
+    *   Git (for cloning).
+*   **Setup Steps:**
+    1.  **Clone the Repository:**
+        ```bash
+        git clone https://github.com/WalkingDevFlag/Chess_Bot.git
+        cd Chess_Bot
+        ```
+    2.  **Navigate to Source Directory:**
+        ```bash
+        cd src 
+        ```
+        *(All subsequent commands for running from source should be from within the `src` directory)*
+    3.  **Create a Virtual Environment (Recommended):**
+        ```bash
+        python -m venv venv
+        # On Windows
+        venv\Scripts\activate
+        # On macOS/Linux
+        source venv/bin/activate
+        ```
+    4.  **Install Dependencies:**
+        The `requirements.txt` should be in the root of the cloned repository, not directly in `src`. If you are in `src`, you might need to refer to it as `../requirements.txt`.
+        ```bash
+        pip install -r ../requirements.txt 
+        ```
+        (If `requirements.txt` is missing, install manually from `src`):
+        ```bash
+        pip install customtkinter selenium webdriver-manager python-chess beautifulsoup4 python-dotenv
+        ```
+    5.  **Create `.env` File:**
+        In the `src/` directory, create a file named `.env` (or copy and rename `src/.env.example`) and add your chess.com credentials:
+        ```env
+        CHESS_USERNAME="your_chess_com_username"
+        CHESS_PASSWORD="your_chess_com_password"
+        ```
+    6.  **Place Your Chess Engine:**
+        *   The application defaults to looking for an engine named `Ethereal-9.00`.
+        *   Place the engine executable (e.g., `Ethereal-9.00` for Linux/macOS, or `Ethereal-9.00.exe` for Windows) in the `src/` directory.
+        *   Alternatively, ensure the engine is in your system's PATH.
+        *   You can change the `DEFAULT_ENGINE_NAME` constant in `src/config.py` if your engine has a different name or path.
+    7.  **Run the Application:**
+        From the `src/` directory:
+        ```bash
+        python main.py
+        ```
 
-2.  **Create a Virtual Environment (Recommended):**
-    ```bash
-    python -m venv venv
-    # On Windows
-    venv\Scripts\activate
-    # On macOS/Linux
-    source venv/bin/activate
-    ```
+## Usage Guide
 
-3.  **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-    (If a `requirements.txt` is not present, install manually):
-    ```bash
-    pip install customtkinter selenium webdriver-manager python-chess beautifulsoup4 python-dotenv
-    ```
-
-4.  **Create `.env` File:**
-    In the root directory of the project (`chess_ai_helper/`), create a file named `.env` and add your chess.com credentials:
-    ```env
-    CHESS_USERNAME="your_chess_com_username"
-    CHESS_PASSWORD="your_chess_com_password"
-    ```
-    Replace `"your_chess_com_username"` and `"your_chess_com_password"` with your actual login details.
-
-5.  **Place Your Chess Engine:**
-    *   Download or compile your chosen UCI chess engine.
-    *   The application defaults to looking for an engine named `Ethereal-9.00`.
-    *   Place the engine executable (e.g., `Ethereal-9.00` for Linux/macOS, or `Ethereal-9.00.exe` for Windows) in the root directory of the project (`chess_ai_helper/`).
-    *   Alternatively, ensure the engine is in your system's PATH.
-    *   You can change the `DEFAULT_ENGINE_NAME` constant in `config.py` if your engine has a different name.
-
-## Running the Application
-
-Navigate to the project's root directory in your terminal and run:
-
-```bash
-python main.py
-```
-
-## Usage
-
-1.  **Open Browser:** Click this button to launch Google Chrome (Incognito by default) and navigate to chess.com.
-2.  **Login:** Once the browser is open, click this to automatically log in using the credentials from your `.env` file.
-3.  **Navigate to a Game:** In the browser, go to a live game, a game against a bot, or open an analysis board where a move list is displayed.
-4.  **Get Virtual Board:** Click to scrape the moves from the current game and display the reconstructed board in the main output area.
-5.  **Get FEN:** Click to get the FEN string of the current virtual board.
+1.  **Open Browser:** Launches Google Chrome (in Incognito mode) and navigates to chess.com.
+2.  **Login:** Automatically logs you into chess.com using the credentials from your `.env` file.
+3.  **Navigate to a Game:** In the browser, start or open any game (vs. Bot, online, or analysis board) where the move list is visible.
+4.  **Get Virtual Board:** Scrapes the moves from the active game on chess.com and displays the current board state in the application.
+5.  **Get FEN:** Displays the FEN string for the current board state shown in the application.
 6.  **Run Bot:**
-    *   This will update the internal board based on the current game.
-    *   It then sends the FEN to the configured chess engine.
-    *   The engine's suggested move (in SAN and UCI format) will be displayed in the main output area.
-7.  **Show/Hide Debug Logs:** Click this button to toggle the visibility of a secondary textbox containing detailed logs from browser automation, engine communication, and move scraping. This is useful for troubleshooting.
+    *   Updates the internal board representation.
+    *   Sends the current FEN to your configured UCI chess engine (Ethereal-9.00 by default).
+    *   Displays the engine's suggested best move.
+7.  **Clear Output:** Clears the main output and debug log text areas.
+8.  **Show/Hide Debug Logs:** Toggles a secondary text area showing detailed operational logs, useful for troubleshooting.
+
+## Project Structure (Source Code)
+
+```
+Chess_Bot/
+├── src/                    # Main source code directory
+│   ├── assets/
+│   │   └── app_icon.ico    # Application icon
+│   ├── .env.example        # Example for .env file
+│   ├── main.py             # Main application entry point
+│   ├── config.py           # Configurations and constants
+│   ├── ui.py               # GUI logic (ChessApp class)
+│   ├── browser_automation.py # Selenium logic (BrowserManager class)
+│   ├── engine_communication.py # UCI engine logic (ChessEngineCommunicator class)
+│   └── Ethereal-9.00       # Default engine (or Ethereal-9.00.exe)
+├── .gitignore
+├── LICENSE
+├── README.md               # This file
+└── requirements.txt        # Python dependencies
+```
 
 ## Modules Overview
 
-*   **`main.py`**: The entry point of the application. Initializes and runs the `ChessApp`.
-*   **`config.py`**: Handles loading of environment variables (like username/password) and stores application-wide constants (like engine name, window titles).
-*   **`ui.py` (`ChessApp` class)**: Manages the entire CustomTkinter graphical user interface, including button actions, text outputs, and interactions between other modules.
-*   **`browser_automation.py` (`BrowserManager` class)**: Encapsulates all Selenium WebDriver logic for opening the browser, logging into chess.com, and scraping game moves from the web page using BeautifulSoup.
-*   **`engine_communication.py` (`ChessEngineCommunicator` class)**: Handles the low-level communication with an external UCI-compliant chess engine via subprocesses. It sends commands (like `uci`, `isready`, `position fen`, `go`) and parses the engine's output to get the best move.
+*   **`main.py`**: Entry point, initializes and runs the `ChessApp`.
+*   **`config.py`**: Manages loading of `.env` variables and global constants.
+*   **`ui.py` (`ChessApp` class)**: Defines and controls the CustomTkinter GUI, handling user interactions and orchestrating calls to other modules.
+*   **`browser_automation.py` (`BrowserManager` class)**: Handles all Selenium WebDriver operations: browser launch, login, and web page scraping for moves using BeautifulSoup.
+*   **`engine_communication.py` (`ChessEngineCommunicator` class)**: Manages communication with the UCI chess engine via subprocesses, sending commands and parsing responses.
 
-## Troubleshooting
+## Troubleshooting Common Issues
 
-*   **`[WinError 193] %1 is not a valid Win32 application`**: This means you're trying to run a Linux-compiled engine on Windows (or vice-versa). Ensure your engine executable is compiled for your operating system.
-*   **Engine Not Found**: Make sure the engine executable (e.g., `Ethereal-9.00` or `Ethereal-9.00.exe`) is in the same directory as `main.py` or in your system's PATH. Check the `DEFAULT_ENGINE_NAME` in `config.py`.
+*   **`[WinError 193] %1 is not a valid Win32 application`**: You are likely trying to run a Linux-compiled engine on Windows (or vice-versa). Ensure your engine executable is compatible with your OS. For Windows, you need an `.exe` version of Ethereal.
+*   **Engine Not Found**:
+    *   If running from source: Place the engine executable (e.g., `Ethereal-9.00` or `Ethereal-9.00.exe`) in the `src/` directory, or ensure it's in your system's PATH.
+    *   If running the packaged release: The engine should be bundled with the `.exe` in the extracted folder.
+    *   Verify `DEFAULT_ENGINE_NAME` in `src/config.py` matches your engine's filename.
 *   **Login Issues**:
-    *   Double-check your credentials in the `.env` file.
-    *   Chess.com might change its login page structure. If login fails, the selectors in `browser_automation.py` (specifically in the `login` method) might need updating. Use browser developer tools to inspect the element IDs.
+    *   Confirm credentials in your `.env` file are correct.
+    *   Chess.com login page structure can change. If login fails repeatedly, HTML element IDs/selectors in `src/browser_automation.py` might need updating.
 *   **Move Scraping Fails ("No moves extracted")**:
-    *   Chess.com frequently updates its website. The HTML structure of the move list might have changed.
-    *   The BeautifulSoup selectors in `browser_automation.py` (specifically in `_get_moves_from_page` and `_extract_san_from_ply_div`) would need to be adjusted. Inspect the game page's HTML to find the correct elements.
-    *   Ensure you are on a page where a game and its move list are visible.
-*   **Debug Logs**: Use the "Show Debug Logs" button to get more detailed information about what the application is doing, which can help pinpoint issues.
+    *   The HTML structure of chess.com's move list can change. Selectors in `src/browser_automation.py` (methods `_get_moves_from_page` and `_extract_san_from_ply_div`) might require updates. Use browser developer tools to inspect the live HTML.
+    *   Make sure a game with a visible move list is active in the browser tab being controlled.
+*   **Debug Logs**: The "Show Debug Logs" button is your best friend for diagnosing issues. It provides detailed insight into the app's operations.
 
-## TO-DO
+## TO-DO / Future Enhancements
+
+*   Implement more sophisticated logic for different game phases (e.g., bullet games, puzzles).
+*   Option for automatic move execution on the chess.com board.
+*   More robust error handling and user feedback mechanisms.
+*   Cross-platform packaging (e.g., for macOS, Linux).
 
 ## Contributing
 
-*   Add Logic for Bullet Games, Puzzles etc
+Contributions, bug reports, and feature requests are welcome! Please feel free to:
+*   Open an issue to discuss a bug or feature.
+*   Fork the repository and submit a pull request with your improvements.
 
-Contributions are welcome! If you'd like to improve the application, feel free to fork the repository and submit a pull request. Areas for improvement could include:
-
-*   More robust web scraping selectors.
-*   UI for selecting different chess engines.
-*   Automatic move execution on the board (use with extreme caution and not for cheating).
-*   Enhanced error handling and user feedback.
-*   Support for other chess platforms.
+When contributing, please try to follow the existing coding style and ensure your changes are well-tested.
