@@ -1,10 +1,21 @@
 import customtkinter as ctk
 from tkinter import messagebox
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import ElementNotInteractableException, TimeoutException
+from webdriver_manager.chrome import ChromeDriverManager
 import chess
 import time
-import os # For joining paths
-import shutil # For finding engine in PATH
+from bs4 import BeautifulSoup, NavigableString
+from dotenv import dotenv_values
+import os
 import re
+import subprocess
+import shutil # For shutil.which
+
 # Import from other modules
 from config import (
     CHESS_USERNAME, CHESS_PASSWORD, DEFAULT_ENGINE_NAME, 
@@ -29,7 +40,6 @@ class ChessApp(ctk.CTk):
 
         self.internal_board: chess.Board = chess.Board()
         
-        # Initialize managers, passing self.add_to_output as the logger
         self.browser_manager: BrowserManager = BrowserManager(self.add_to_output)
         self.engine_communicator: Optional[ChessEngineCommunicator] = None
 
@@ -58,6 +68,10 @@ class ChessApp(ctk.CTk):
         
         self.btn_run_bot = ctk.CTkButton(button_frame, text=f"Run Bot ({DEFAULT_ENGINE_NAME})", command=self._run_bot_command_handler, state="disabled")
         self.btn_run_bot.pack(pady=5, padx=5, fill="x")
+
+        # New Clear Chat Button
+        self.btn_clear_chat = ctk.CTkButton(button_frame, text="Clear Output", command=self._clear_output_command_handler)
+        self.btn_clear_chat.pack(pady=5, padx=5, fill="x")
         
         output_frame = ctk.CTkFrame(self.main_frame)
         output_frame.pack(pady=5, padx=5, fill="both", expand=True)
@@ -80,15 +94,16 @@ class ChessApp(ctk.CTk):
             self.btn_toggle_debug_logs.configure(text="Show Debug Logs")
             self.geometry(DEFAULT_WINDOW_SIZE)
         else:
-            self.debug_log_textbox_frame.pack(pady=5, padx=5, fill="both", expand=True, before=self.btn_toggle_debug_logs) # Pack before the toggle button
+            self.debug_log_textbox_frame.pack(pady=5, padx=5, fill="both", expand=True, before=self.btn_toggle_debug_logs)
             self.btn_toggle_debug_logs.configure(text="Hide Debug Logs")
             self.geometry(DEBUG_WINDOW_SIZE)
         self.debug_logs_visible = not self.debug_logs_visible
 
     def add_to_output(self, message: str, log_type: str = "user") -> None:
-        """Adds a message to the appropriate output textbox."""
-        current_time = time.strftime('%H:%M:%S')
-        formatted_message = f"{current_time} - {message}\n"
+        """Adds a message to the appropriate output textbox without timestamp."""
+        # current_time = time.strftime('%H:%M:%S') # Removed timestamp
+        # formatted_message = f"{current_time} - {message}\n"
+        formatted_message = f"{message}\n" # No timestamp
         
         target_textbox = self.output_textbox
         if log_type == "debug":
@@ -98,7 +113,19 @@ class ChessApp(ctk.CTk):
         target_textbox.insert("end", formatted_message)
         target_textbox.see("end")
         target_textbox.configure(state="disabled")
-        self.update_idletasks() # Ensure UI updates immediately
+        self.update_idletasks()
+
+    def _clear_output_command_handler(self) -> None:
+        """Clears the main output and debug log textboxes."""
+        self.output_textbox.configure(state="normal")
+        self.output_textbox.delete("1.0", "end")
+        self.output_textbox.configure(state="disabled")
+
+        self.debug_log_textbox.configure(state="normal")
+        self.debug_log_textbox.delete("1.0", "end")
+        self.debug_log_textbox.configure(state="disabled")
+        
+        self.add_to_output("Output cleared.", log_type="user") # Add a confirmation message
 
     def on_closing(self) -> None:
         """Handles window close event."""
@@ -112,7 +139,6 @@ class ChessApp(ctk.CTk):
     def _open_browser_command_handler(self) -> None:
         """Handles the 'Open Browser' button click."""
         if self.browser_manager.open_browser():
-            # Enable other buttons if browser opened successfully
             self.btn_login.configure(state="normal")
             self.btn_get_board.configure(state="normal")
             self.btn_get_fen.configure(state="normal")
@@ -140,23 +166,24 @@ class ChessApp(ctk.CTk):
         parsed_count = 0
         for move_san_original in scraped_moves:
             try:
-                # Clean common prefixes like "1." or "1..." 
                 move_san_cleaned = re.sub(r"^\d+\.*\s*", "", move_san_original).strip()
-                if not move_san_cleaned: continue # Skip if cleaning resulted in empty string
+                if not move_san_cleaned: continue
                 
                 self.internal_board.push_san(move_san_cleaned)
                 parsed_count += 1
-            except ValueError as e: # Illegal move or bad SAN
+            except ValueError as e:
                 self.add_to_output(f"Error parsing move '{move_san_original}' (cleaned: '{move_san_cleaned}'): {e}. Board may be out of sync.", log_type="debug")
-            except Exception as e: # Other unexpected errors
+            except NameError as ne: 
+                 self.add_to_output(f"CRITICAL NameError parsing move '{move_san_original}': {ne}. This indicates 're' module is not imported.", log_type="debug")
+            except Exception as e:
                 self.add_to_output(f"Unexpected error parsing move '{move_san_original}': {e}", log_type="debug")
         
         if parsed_count > 0:
             self.add_to_output(f"Internal board updated with {parsed_count} moves.", log_type="debug")
             return True
-        elif not scraped_moves: # No moves were scraped (already logged by get_scraped_moves)
+        elif not scraped_moves:
             return False
-        else: # Moves were scraped but all failed to parse
+        else:
             self.add_to_output("All scraped moves failed to parse. Board not updated.", log_type="user")
             return False
 
@@ -164,7 +191,7 @@ class ChessApp(ctk.CTk):
         """Handles the 'Get Virtual Board' button click."""
         if self._update_internal_board_state():
             self.add_to_output("--- Current Virtual Board ---", log_type="user")
-            self.add_to_output(f"\n{self.internal_board}\n", log_type="user") # Add newlines for board display
+            self.add_to_output(f"\n{self.internal_board}\n", log_type="user") 
             self.add_to_output("---------------------------", log_type="user")
         else:
             self.add_to_output("Could not display board (update failed or no moves).", log_type="user")
@@ -193,13 +220,12 @@ class ChessApp(ctk.CTk):
         current_fen = self.internal_board.fen()
         self.add_to_output(f"Current FEN for engine: {current_fen}", log_type="debug")
 
-        # Determine engine path
         final_engine_path = None
         if os.path.exists(ENGINE_PATH_LOCAL):
             final_engine_path = ENGINE_PATH_LOCAL
         elif os.name == 'nt' and os.path.exists(ENGINE_PATH_LOCAL_EXE):
             final_engine_path = ENGINE_PATH_LOCAL_EXE
-        else: # Try finding in PATH
+        else: 
             path_from_shutil = shutil.which(DEFAULT_ENGINE_NAME) or \
                                (os.name == 'nt' and shutil.which(f"{DEFAULT_ENGINE_NAME}.exe"))
             if path_from_shutil:
@@ -213,13 +239,12 @@ class ChessApp(ctk.CTk):
         
         self.add_to_output(f"Using engine at: {final_engine_path}", log_type="debug")
 
-        # Initialize or re-initialize engine if necessary
         if self.engine_communicator is None or \
            not self.engine_communicator.engine_process or \
            self.engine_communicator.engine_process.poll() is not None or \
-           self.engine_communicator.engine_path != final_engine_path: # If path changed or process died
+           self.engine_communicator.engine_path != final_engine_path:
             try:
-                if self.engine_communicator: # Stop old/dead instance
+                if self.engine_communicator:
                     self.engine_communicator.stop_engine()
                 self.add_to_output(f"Initializing {DEFAULT_ENGINE_NAME}...", log_type="debug")
                 self.engine_communicator = ChessEngineCommunicator(final_engine_path, self.add_to_output)
@@ -230,12 +255,10 @@ class ChessApp(ctk.CTk):
                 messagebox.showerror("Engine Error", f"Failed to initialize {DEFAULT_ENGINE_NAME}: {e}")
                 self.engine_communicator = None; return
         
-        # Get best move from engine
         if self.engine_communicator and self.engine_communicator.engine_process and \
            self.engine_communicator.engine_process.poll() is None:
             try:
                 self.add_to_output(f"Requesting best move from {DEFAULT_ENGINE_NAME}...", log_type="debug")
-                # Example dynamic movetime, adjust as needed
                 movetime_ms = min(max(self.internal_board.ply() * 70 + 1000, 500), 5000) 
                 self.add_to_output(f"Engine thinking for {movetime_ms}ms...", log_type="debug")
                 
@@ -246,16 +269,15 @@ class ChessApp(ctk.CTk):
                         move_obj = self.internal_board.parse_uci(best_move_uci)
                         best_move_san = self.internal_board.san(move_obj)
                         self.add_to_output(f"Suggested Move: {best_move_san} (UCI: {best_move_uci})", log_type="user")
-                    except Exception as parse_e: # Handle if UCI move is valid but SAN conversion fails
+                    except Exception as parse_e:
                         self.add_to_output(f"Suggested Move (UCI): {best_move_uci} (SAN parse error: {parse_e})", log_type="user")
                 elif best_move_uci == "(none)":
                     self.add_to_output(f"{DEFAULT_ENGINE_NAME} returned (none) - game might be over or no legal moves for current side.", log_type="user")
-                else: # Engine might have timed out or returned an empty string
+                else: 
                     self.add_to_output(f"{DEFAULT_ENGINE_NAME} did not return a valid best move string or timed out.", log_type="user")
             except Exception as e:
                 self.add_to_output(f"Error communicating with {DEFAULT_ENGINE_NAME}: {e}", log_type="user")
                 messagebox.showerror("Engine Communication Error", f"Error: {e}")
-                # Consider stopping engine on communication error
                 if self.engine_communicator: self.engine_communicator.stop_engine(); self.engine_communicator = None
         else:
             self.add_to_output(f"{DEFAULT_ENGINE_NAME} is not running or failed to initialize.", log_type="user")
