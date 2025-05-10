@@ -155,6 +155,7 @@ Chess_Bot/
 ## TO-DO / Future Enhancements
 
 *   Implement more sophisticated logic for different game phases (e.g., bullet games, puzzles).
+*   For Bullet Games, will be adding auto move maker with a random time from 0.1 to 5 sec based on how much time is left.
 *   Option for automatic move execution on the chess.com board.
 *   More robust error handling and user feedback mechanisms.
 *   Cross-platform packaging (e.g., for macOS, Linux).
