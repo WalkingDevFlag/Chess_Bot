@@ -24,22 +24,35 @@ class BrowserManager:
         self.driver: Optional[webdriver.Chrome] = None
         self.logger: Callable[[str, str], None] = logger_func
 
-    def open_browser(self, url: str = "https://www.chess.com") -> bool:
-        """Opens the browser and navigates to the given URL."""
+    def open_browser(self, url: str = "https://www.chess.com", incognito: bool = True) -> bool: # Added incognito flag
+        """
+        Opens the browser and navigates to the given URL.
+
+        Args:
+            url: The URL to navigate to.
+            incognito: If True, opens the browser in Incognito mode.
+        
+        Returns:
+            True if the browser was opened/managed successfully, False otherwise.
+        """
         if self.driver:
             self.logger("Browser already open. Focusing existing window.", log_type="user")
-            try: # Attempt to bring the window to the front (OS-dependent)
+            try: 
                 self.driver.switch_to.window(self.driver.current_window_handle)
             except Exception:
                 self.logger("Could not focus existing browser window.", log_type="debug")
-            return True # Indicate browser is already managed
+            return True
 
         try:
-            self.logger("Opening browser...", log_type="user")
+            self.logger(f"Opening browser (Incognito: {incognito})...", log_type="user") # Updated log
             options = webdriver.ChromeOptions()
-            options.add_experimental_option('excludeSwitches', ['enable-logging']) # Suppress DevTools messages
+            options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            
+            if incognito:
+                options.add_argument("--incognito") # <<<<<<<<<<<< ADDED THIS LINE FOR INCOGNITO
+            
             # Add other options if needed (headless, window-size, etc.)
-            # options.add_argument("--headless")
+            # options.add_argument("--headless") 
             
             service = ChromeService(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=options)
@@ -48,7 +61,7 @@ class BrowserManager:
             return True
         except Exception as e:
             self.logger(f"Error opening browser: {e}", log_type="user")
-            self.driver = None # Ensure driver is None if opening failed
+            self.driver = None 
             return False
 
     def login(self, username: Optional[str], password: Optional[str], 
@@ -67,7 +80,7 @@ class BrowserManager:
             self.logger(f"Navigating to login page: {login_url}", log_type="debug")
             self.driver.get(login_url)
             
-            wait = WebDriverWait(self.driver, 20) # Wait up to 20 seconds for elements
+            wait = WebDriverWait(self.driver, 20)
 
             self.logger("Waiting for username field...", log_type="debug")
             username_field = wait.until(EC.visibility_of_element_located((By.ID, "login-username")))
@@ -92,12 +105,10 @@ class BrowserManager:
                 self.driver.execute_script("arguments[0].click();", login_button)
 
             self.logger("Waiting for login to complete and redirect...", log_type="debug")
-            # Wait for URL to change to something indicating successful login
-            # Also check that we are NOT on a login or credentials error page.
             expected_conditions = [EC.url_contains(keyword) for keyword in success_url_keywords]
             wait.until(EC.any_of(*expected_conditions))
             
-            time.sleep(1) # Short pause for any final page adjustments
+            time.sleep(1) 
 
             current_url_lower = self.driver.current_url.lower()
             if any(keyword in current_url_lower for keyword in success_url_keywords) and \
@@ -120,14 +131,14 @@ class BrowserManager:
         highlight_span = ply_div.find('span', class_='node-highlight-content')
         if not highlight_span:
             raw_text = ply_div.get_text(strip=True)
-            cleaned_text = re.sub(r"^\d+\.*\s*", "", raw_text).strip() # Remove move numbers like "1."
+            cleaned_text = re.sub(r"^\d+\.*\s*", "", raw_text).strip()
             return cleaned_text if cleaned_text else None
         
         figurine_span = highlight_span.find('span', class_='icon-font-chess')
         piece_char_from_data = ''
         if figurine_span and 'data-figurine' in figurine_span.attrs:
             piece_char_from_data = figurine_span['data-figurine']
-        if piece_char_from_data == 'P': # Pawn figurine 'P' is not used in SAN
+        if piece_char_from_data == 'P': 
             piece_char_from_data = ''
             
         move_detail_parts = []
@@ -135,7 +146,7 @@ class BrowserManager:
             if isinstance(content, NavigableString):
                 move_detail_parts.append(str(content).strip())
             elif hasattr(content, 'name') and content.name == 'span' and 'icon-font-chess' in content.get('class', []):
-                continue # Already got piece from data-figurine
+                continue 
             elif hasattr(content, 'get_text'):
                 tag_text = content.get_text(strip=True) 
                 if tag_text: 
@@ -143,15 +154,14 @@ class BrowserManager:
         
         move_detail_from_text = "".join(filter(None, move_detail_parts)).strip()
 
-        # Construct SAN
         if move_detail_from_text and move_detail_from_text[0].isupper() and move_detail_from_text[0] in "KQRBN":
             san = move_detail_from_text
-        elif piece_char_from_data: # Prepend piece if found via figurine
+        elif piece_char_from_data: 
             san = piece_char_from_data + move_detail_from_text
-        else: # Otherwise, the text itself is the move (e.g., "e4", "O-O")
+        else: 
             san = move_detail_from_text
             
-        if san: # Clean common annotations (though push_san in python-chess handles some)
+        if san: 
             san = san.replace('+', '').replace('#', '').replace('!', '').replace('?', '')
         return san if san else None
 
@@ -165,7 +175,6 @@ class BrowserManager:
             soup = BeautifulSoup(page_source, 'html.parser')
             moves_san: List[str] = []
 
-            # Strategy 1: Look for "turn rows" and then plies within them
             turn_rows = soup.find_all('div', class_=lambda value: value and 'main-line-row' in value and 'move-list-row' in value)
             
             if turn_rows:
@@ -173,13 +182,12 @@ class BrowserManager:
                 for turn_row_div in turn_rows:
                     ply_divs_in_row = turn_row_div.find_all('div', class_=lambda c: c and 'node' in c.split() and ('white-move' in c.split() or 'black-move' in c.split()) and 'main-line-ply' in c.split())
                     for ply_div in ply_divs_in_row:
-                        if ply_div.find_parent(class_=lambda c: c and 'subline' in c.split()): # No limit for find_parent
+                        if ply_div.find_parent(class_=lambda c: c and 'subline' in c.split()):
                             continue 
                         san = self._extract_san_from_ply_div(ply_div)
                         if san:
                             moves_san.append(san)
             else:
-                # Fallback Strategy 2: Global search for ply divs
                 self.logger("No 'main-line-row' (turn rows) found. Trying global ply search.", log_type="debug")
                 ply_divs_global = soup.find_all('div', class_=lambda c: c and 'node' in c.split() and ('white-move' in c.split() or 'black-move' in c.split()) and 'main-line-ply' in c.split())
                 if ply_divs_global:
@@ -190,12 +198,10 @@ class BrowserManager:
                             if san:
                                 moves_san.append(san)
                 else:
-                    # Fallback Strategy 3: wc-vertical-move-list (less common now for main lines)
                     self.logger("Global ply search failed. Trying 'wc-vertical-move-list'.", log_type="debug")
                     move_list_wc = soup.find('wc-vertical-move-list')
                     if move_list_wc:
                         self.logger("Found 'wc-vertical-move-list'. Processing its children.", log_type="debug")
-                        # This structure is different, usually simpler divs with class 'white' or 'black'
                         potential_plies = move_list_wc.find_all('div', class_=['white', 'black'], recursive=True)
                         for ply_candidate in potential_plies:
                             is_subline = False; parent = ply_candidate.parent
@@ -203,7 +209,7 @@ class BrowserManager:
                                 if 'subline' in parent.get('class', []): is_subline = True; break
                                 parent = parent.parent
                             if is_subline: continue
-                            san = self._extract_san_from_ply_div(ply_candidate) # Re-use extraction
+                            san = self._extract_san_from_ply_div(ply_candidate) 
                             if san: moves_san.append(san)
                     else:
                         self.logger("No moves found with any known selector.", log_type="debug")
