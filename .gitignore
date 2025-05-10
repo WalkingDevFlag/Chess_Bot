@@ -9,3 +9,4 @@ src/.env
 # Python cache
 /src/__pycache__
 /Test
+context.txt
