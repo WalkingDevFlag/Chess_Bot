@@ -124,7 +124,11 @@ python main.py
     *   Ensure you are on a page where a game and its move list are visible.
 *   **Debug Logs**: Use the "Show Debug Logs" button to get more detailed information about what the application is doing, which can help pinpoint issues.
 
+## TO-DO
+
 ## Contributing
+
+*   Add Logic for Bullet Games, Puzzles etc
 
 Contributions are welcome! If you'd like to improve the application, feel free to fork the repository and submit a pull request. Areas for improvement could include:
 
