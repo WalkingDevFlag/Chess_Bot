@@ -1,3 +1,11 @@
-.env
-/Test
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Sensitive files (though .env should ideally not be committed even by mistake)
+src/.env
+
+# Python cache
 /src/__pycache__
+/Test
