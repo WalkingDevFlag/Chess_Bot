@@ -1,4 +1,3 @@
-# ui.py
 import customtkinter as ctk
 from tkinter import messagebox
 import chess
@@ -6,15 +5,13 @@ import time
 import re
 import os
 import shutil
-import subprocess # Only used by ChessEngineCommunicator indirectly
-from typing import Optional, List, Callable # Corrected import for subprocess in other files
-import threading
-# import random # random is used in auto_player, not directly here
+from typing import Optional, List, Callable 
+import threading 
 
 from config import (
     CHESS_USERNAME, CHESS_PASSWORD, DEFAULT_ENGINE_NAME,
     WINDOW_TITLE, DEFAULT_WINDOW_SIZE, DEBUG_WINDOW_SIZE,
-    ENGINE_PATH_LOCAL, ENGINE_PATH_LOCAL_EXE, BASE_DIR,
+    ENGINE_PATH_LOCAL, ENGINE_PATH_LOCAL_EXE, BASE_DIR, 
     FAILSAFE_KEY
 )
 from browser_automation import BrowserManager
@@ -117,26 +114,41 @@ class ChessApp(ctk.CTk):
         self.destroy()
 
     def _ensure_engine_ready(self) -> bool:
+        # This function relies on ENGINE_PATH_LOCAL and ENGINE_PATH_LOCAL_EXE 
+        # being correctly set by config.py (which should be PyInstaller-aware)
         if not self.browser_manager.driver:
             self.add_to_output("Browser not open.", "user"); return False
+        
         final_engine_path = None
-        if os.path.exists(ENGINE_PATH_LOCAL): final_engine_path = ENGINE_PATH_LOCAL
-        elif os.name == 'nt' and os.path.exists(ENGINE_PATH_LOCAL_EXE): final_engine_path = ENGINE_PATH_LOCAL_EXE
+        # ENGINE_PATH_LOCAL and ENGINE_PATH_LOCAL_EXE are imported from config.
+        # If running frozen, config.BASE_DIR (and thus these paths) should point into sys._MEIPASS.
+        if os.path.exists(ENGINE_PATH_LOCAL): 
+            final_engine_path = ENGINE_PATH_LOCAL
+        elif os.name == 'nt' and os.path.exists(ENGINE_PATH_LOCAL_EXE): 
+            final_engine_path = ENGINE_PATH_LOCAL_EXE
         else:
+            # Fallback to shutil.which if not found in the (potentially bundled) paths
+            # This is less ideal for a one-file bundle as it means the engine isn't self-contained.
+            self.add_to_output(f"Engine not found at primary paths: '{ENGINE_PATH_LOCAL}' or '{ENGINE_PATH_LOCAL_EXE}'. Checking PATH...", "debug")
             path_from_shutil = shutil.which(DEFAULT_ENGINE_NAME) or \
                                (os.name == 'nt' and shutil.which(f"{DEFAULT_ENGINE_NAME}.exe"))
-            if path_from_shutil: final_engine_path = path_from_shutil
+            if path_from_shutil: 
+                final_engine_path = path_from_shutil
+                self.add_to_output(f"Warning: Using engine from system PATH: {final_engine_path}", "user")
+
         if not final_engine_path:
-            err_msg = f"Engine '{DEFAULT_ENGINE_NAME}' not found."
+            err_msg = f"Engine '{DEFAULT_ENGINE_NAME}' not found in expected locations or system PATH."
             self.add_to_output(err_msg, "user"); messagebox.showerror("Engine Not Found", err_msg); return False
-        self.add_to_output(f"Using engine: {final_engine_path}", "debug")
+        
+        self.add_to_output(f"Attempting to use engine: {final_engine_path}", "debug")
+
         if self.engine_communicator is None or \
            not self.engine_communicator.engine_process or \
            self.engine_communicator.engine_process.poll() is not None or \
            self.engine_communicator.engine_path != final_engine_path:
             try:
                 if self.engine_communicator: self.engine_communicator.stop_engine()
-                self.add_to_output(f"Initializing {DEFAULT_ENGINE_NAME}...", "debug")
+                self.add_to_output(f"Initializing {DEFAULT_ENGINE_NAME} from {final_engine_path}...", "debug")
                 self.engine_communicator = ChessEngineCommunicator(final_engine_path, self.add_to_output)
             except Exception as e: # pylint: disable=broad-except
                 self.add_to_output(f"Failed to init {DEFAULT_ENGINE_NAME}: {e}", "user")
@@ -282,6 +294,14 @@ class ChessApp(ctk.CTk):
         self.add_to_output("Auto-play UI reset.", "debug")
 
 if __name__ == "__main__":
+    # This import is here to ensure sys is available for config.py when it's imported.
+    # It's a bit unusual but addresses the case where config.py might be the first
+    # to need sys for the getattr(sys, 'frozen', False) check if this script were run directly
+    # in a way that config.py gets parsed before other sys imports.
+    # However, typically main.py imports ui, ui imports config, and config imports sys.
+    # For robustness if config.py is imported very early:
+    import sys # pylint: disable=unused-import, wrong-import-position 
+
     if not CHESS_USERNAME or not CHESS_PASSWORD:
         print(f"CRITICAL: Credentials not in .env (expected at {os.path.join(BASE_DIR, '.env')}).")
         try:
