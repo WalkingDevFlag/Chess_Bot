@@ -1,4 +1,4 @@
-# Chess.com AI Helper (ChessCheater HEHEHEHEHE)
+# Chess.com AI Helper
 
 This Python application provides a graphical user interface (GUI) to interact with chess.com, extract game information, get move suggestions from an external UCI-compliant chess engine (defaulting to Ethereal-9.00), and automatically play moves in fast-paced games. It's designed as a tool for analysis, experimentation, and potentially assisting with puzzles or playing against computer opponents.
 
@@ -209,9 +209,27 @@ Chess_Bot/
 
 ## TO-DO / Future Enhancements
 
-1.  **Improving Logic for Move Delay:** Further refine move timing in auto-play modes to more closely mimic human hesitation, thought processes, and reactions to time pressure.
-2.  **Stealth Improvements:** Investigate and implement strategies to make bot interaction less detectable by anti-cheating systems (for ethical use against computer opponents or analysis only). This could involve more randomized mouse paths, variable click durations, and less predictable interaction patterns.
-3.  **Code Cleanup & Refactoring:** Continuously review and refactor the codebase for better readability, maintainability, and performance.
+This project has a lot of potential for growth! Here are some areas planned for future development:
+
+1.  **Advanced Stealth & Humanization for Auto-Play:**
+    *   **Replace PyAutoGUI:** Transition from `pyautogui` to `ctypes` (or similar direct Windows API calls) for mouse movements to potentially reduce detectability and improve control.
+    *   **Randomized Mouse Paths:** Implement Bezier curves or other path randomization techniques for mouse movements between squares, rather than direct linear paths.
+    *   **Variable Click Durations:** Introduce more nuanced and randomized click down/up times.
+    *   **Less Predictable Interaction Patterns:** Explore varying sequences of actions, slight delays before initiating UI interactions, and other non-uniform behaviors.
+    *   **Improved Logic for Move Delay:** Further refine the "human-like" delay algorithm based on game state, piece complexity, board threats, and clock pressure.
+
+2.  **Application Robustness & User Experience:**
+    *   **Login Check:** Implement a check to see if the user is already logged into chess.com in the browser to avoid unnecessary login attempts or allow session reuse.
+    *   **Puzzle Solving Logic:** Develop a dedicated mode or logic for assisting with or solving chess.com puzzles.
+    *   **Alternative FEN Retrieval:** Investigate more direct methods for obtaining the FEN string (e.g., via potential JavaScript variables on the page, browser extensions, or memory reading if feasible and ethical for the intended use case) to reduce reliance on full move list scraping, especially for speed.
+
+3.  **Advanced AI & Gameplay:**
+    *   **Hybrid AI Model:** Train a neural network on a corpus of grandmaster games. Implement a system that can switch between this custom neural net (for opening/mid-game human-like play) and a strong traditional engine like Ethereal (for sharp tactical calculations and endgame precision).
+
+4.  **Code & UI Refinements:**
+    *   **Code Refactoring:** Continuously refactor the codebase for better modularity, readability, maintainability, and performance.
+    *   **UI Enhancements:** Update the user interface as new features are added, ensuring it remains intuitive and informative. This could include visual feedback for auto-play actions or more detailed engine analysis displays.
+    *   **Cross-Platform Support:** Investigate and implement necessary changes for easier packaging and running on macOS and Linux.
 
 ## Contributing
 
