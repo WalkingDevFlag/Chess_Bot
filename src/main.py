@@ -1,30 +1,20 @@
+# main.py
+# No changes needed for this request.
 import customtkinter as ctk
 from tkinter import messagebox
-from ui import ChessApp # Import the ChessApp class from ui.py
-from config import CHESS_USERNAME, CHESS_PASSWORD, dotenv_path
+import os
+
+from ui import ChessApp 
+from config import CHESS_USERNAME, CHESS_PASSWORD, BASE_DIR
 
 if __name__ == "__main__":
-    # Initial check for .env configuration
+    dotenv_full_path = os.path.join(BASE_DIR, ".env")
     if not CHESS_USERNAME or not CHESS_PASSWORD:
-        # This message will print to console if GUI hasn't started
-        print(f"CRITICAL: CHESS_USERNAME or CHESS_PASSWORD not found in .env file (expected at {dotenv_path}).")
-        print("Please create a .env file in the application directory with your chess.com credentials.")
-        
-        # Attempt to show a GUI error if possible, for better user feedback
+        print(f"CRITICAL: Credentials not in .env (expected at {dotenv_full_path}).")
         try:
-            # Need a temporary root to show messagebox if main app isn't up
-            temp_root = ctk.CTk()
-            temp_root.withdraw() # Hide the temp root window
-            messagebox.showerror(
-                "Configuration Error",
-                "CHESS_USERNAME or CHESS_PASSWORD not set in .env file.\n"
-                "Please create a .env file in the application directory and restart."
-            )
+            temp_root = ctk.CTk(); temp_root.withdraw()
+            messagebox.showerror("Config Error", f"Credentials not in .env (expected at {dotenv_full_path}). Create and restart.")
             temp_root.destroy()
-        except Exception as e:
-            print(f"Could not display GUI error message: {e}")
-        # exit(1) # Optionally exit if config is critical for startup
-
-    # Create and run the application
+        except Exception: pass # pylint: disable=broad-except
     app = ChessApp()
     app.mainloop()

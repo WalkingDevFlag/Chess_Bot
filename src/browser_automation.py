@@ -1,235 +1,149 @@
+# browser_automation.py
+# No changes needed based on the user's last request regarding square size or perspective clarification.
+# The perspective logic is already in place. Square size is a config value used by AutoPlayer.
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, ElementNotInteractableException
+from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup, NavigableString
 import time
 import re
 from typing import Optional, List, Callable
+import chess
 
 class BrowserManager:
-    """
-    Manages Selenium WebDriver interactions with chess.com.
-    """
     def __init__(self, logger_func: Callable[[str, str], None]):
-        """
-        Initializes the BrowserManager.
-
-        Args:
-            logger_func: A callable for logging messages, accepting (message, log_type).
-        """
         self.driver: Optional[webdriver.Chrome] = None
         self.logger: Callable[[str, str], None] = logger_func
 
-    def open_browser(self, url: str = "https://www.chess.com", incognito: bool = True) -> bool: # Added incognito flag
-        """
-        Opens the browser and navigates to the given URL.
-
-        Args:
-            url: The URL to navigate to.
-            incognito: If True, opens the browser in Incognito mode.
-        
-        Returns:
-            True if the browser was opened/managed successfully, False otherwise.
-        """
+    def open_browser(self, url: str = "https://www.chess.com", incognito: bool = True) -> bool:
         if self.driver:
-            self.logger("Browser already open. Focusing existing window.", log_type="user")
-            try: 
-                self.driver.switch_to.window(self.driver.current_window_handle)
-            except Exception:
-                self.logger("Could not focus existing browser window.", log_type="debug")
+            try: self.driver.switch_to.window(self.driver.current_window_handle)
+            except Exception: self.logger("Could not focus browser.", "debug") #pylint: disable=broad-except
             return True
-
         try:
-            self.logger(f"Opening browser (Incognito: {incognito})...", log_type="user") # Updated log
+            self.logger(f"Opening browser (Incognito: {incognito})...", "user")
             options = webdriver.ChromeOptions()
             options.add_experimental_option('excludeSwitches', ['enable-logging'])
-            
-            if incognito:
-                options.add_argument("--incognito") # <<<<<<<<<<<< ADDED THIS LINE FOR INCOGNITO
-            
-            # Add other options if needed (headless, window-size, etc.)
-            # options.add_argument("--headless") 
-            
+            if incognito: options.add_argument("--incognito")
             service = ChromeService(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=options)
             self.driver.get(url)
-            self.logger(f"{url} opened successfully.", log_type="user")
-            return True
-        except Exception as e:
-            self.logger(f"Error opening browser: {e}", log_type="user")
-            self.driver = None 
-            return False
+            self.logger(f"{url} opened.", "user"); return True
+        except Exception as e: #pylint: disable=broad-except
+            self.logger(f"Error opening browser: {e}", "user"); self.driver = None; return False
 
     def login(self, username: Optional[str], password: Optional[str], 
               login_url: str = "https://www.chess.com/login",
-              success_url_keywords: List[str] = ["/home", "/play/online", "/member/", "/today"]) -> bool:
-        """Logs into chess.com."""
-        if not self.driver:
-            self.logger("Browser not open. Cannot login.", log_type="user")
-            return False
-        if not username or not password:
-            self.logger("Username or Password not provided for login.", log_type="user")
-            return False
-
+              success_url_keywords: List[str] = ["/home", "/play", "/member/", "/today"]) -> bool:
+        if not self.driver: self.logger("Browser not open.", "user"); return False
+        if not username or not password: self.logger("Username/Password not provided.", "user"); return False
         try:
-            self.logger("Attempting to login to chess.com...", log_type="user")
-            self.logger(f"Navigating to login page: {login_url}", log_type="debug")
+            self.logger("Attempting login...", "user")
             self.driver.get(login_url)
-            
             wait = WebDriverWait(self.driver, 20)
-
-            self.logger("Waiting for username field...", log_type="debug")
             username_field = wait.until(EC.visibility_of_element_located((By.ID, "login-username")))
-            username_field.clear()
-            username_field.send_keys(username)
-            self.logger("Username entered.", log_type="debug")
-
-            self.logger("Waiting for password field...", log_type="debug")
+            username_field.clear(); username_field.send_keys(username)
             password_field = wait.until(EC.visibility_of_element_located((By.ID, "login-password")))
-            password_field.clear()
-            password_field.send_keys(password)
-            self.logger("Password entered.", log_type="debug")
-
-            self.logger("Waiting for login button to be clickable...", log_type="debug")
+            password_field.clear(); password_field.send_keys(password)
             login_button = wait.until(EC.element_to_be_clickable((By.ID, "login")))
-            
-            self.logger("Attempting to click login button...", log_type="debug")
-            try:
-                login_button.click()
+            try: login_button.click()
             except ElementNotInteractableException:
-                self.logger("Standard click failed (ElementNotInteractable). Trying JavaScript click.", log_type="debug")
-                self.driver.execute_script("arguments[0].click();", login_button)
-
-            self.logger("Waiting for login to complete and redirect...", log_type="debug")
-            expected_conditions = [EC.url_contains(keyword) for keyword in success_url_keywords]
-            wait.until(EC.any_of(*expected_conditions))
+                self.logger("JS click for login.", "debug"); self.driver.execute_script("arguments[0].click();", login_button)
             
-            time.sleep(1) 
+            current_url_before_click = self.driver.current_url; time.sleep(0.5)
+            wait.until(EC.any_of(EC.url_changes(current_url_before_click), *[EC.url_contains(k) for k in success_url_keywords]))
+            time.sleep(1.5) 
 
             current_url_lower = self.driver.current_url.lower()
-            if any(keyword in current_url_lower for keyword in success_url_keywords) and \
-               "login" not in current_url_lower and "credentials" not in current_url_lower :
-                self.logger("Login successful.", log_type="user")
-                return True
+            if any(k in current_url_lower for k in success_url_keywords) and "login" not in current_url_lower and "credentials" not in current_url_lower:
+                self.logger("Login successful.", "user"); return True
             else:
-                self.logger(f"Login may have failed. Current URL: {self.driver.current_url}", log_type="user")
+                self.logger(f"Login failed. URL: {self.driver.current_url}", "user")
+                try:
+                    err_el = self.driver.find_element(By.CSS_SELECTOR, "div.notice-message-component.error")
+                    if err_el and err_el.is_displayed(): self.logger(f"Login page error: {err_el.text}", "user")
+                except NoSuchElementException: pass
                 return False
-
-        except TimeoutException:
-            self.logger(f"Login error: Timeout. Current URL: '{self.driver.current_url if self.driver else 'N/A'}'", log_type="user")
-            return False
-        except Exception as e:
-            self.logger(f"An unexpected error occurred during login: {e}", log_type="user")
-            return False
+        except TimeoutException: self.logger(f"Login timeout. URL: '{self.driver.current_url if self.driver else 'N/A'}'", "user"); return False
+        except Exception as e: self.logger(f"Login error: {e}", "user"); return False #pylint: disable=broad-except
 
     def _extract_san_from_ply_div(self, ply_div: BeautifulSoup) -> Optional[str]:
-        """Extracts SAN from a single ply div element."""
-        highlight_span = ply_div.find('span', class_='node-highlight-content')
-        if not highlight_span:
-            raw_text = ply_div.get_text(strip=True)
-            cleaned_text = re.sub(r"^\d+\.*\s*", "", raw_text).strip()
-            return cleaned_text if cleaned_text else None
-        
-        figurine_span = highlight_span.find('span', class_='icon-font-chess')
-        piece_char_from_data = ''
-        if figurine_span and 'data-figurine' in figurine_span.attrs:
-            piece_char_from_data = figurine_span['data-figurine']
-        if piece_char_from_data == 'P': 
-            piece_char_from_data = ''
-            
-        move_detail_parts = []
-        for content in highlight_span.contents:
-            if isinstance(content, NavigableString):
-                move_detail_parts.append(str(content).strip())
-            elif hasattr(content, 'name') and content.name == 'span' and 'icon-font-chess' in content.get('class', []):
-                continue 
-            elif hasattr(content, 'get_text'):
-                tag_text = content.get_text(strip=True) 
-                if tag_text: 
-                    move_detail_parts.append(tag_text)
-        
-        move_detail_from_text = "".join(filter(None, move_detail_parts)).strip()
-
-        if move_detail_from_text and move_detail_from_text[0].isupper() and move_detail_from_text[0] in "KQRBN":
-            san = move_detail_from_text
-        elif piece_char_from_data: 
-            san = piece_char_from_data + move_detail_from_text
-        else: 
-            san = move_detail_from_text
-            
-        if san: 
-            san = san.replace('+', '').replace('#', '').replace('!', '').replace('?', '')
-        return san if san else None
+        content_span = ply_div.find('span', class_=lambda c: c and ('node-highlight-content' in c or 'move-text-move' in c))
+        text_to_parse = ""
+        if content_span:
+            figurine_element = content_span.find(attrs={"data-figurine": True})
+            piece_char = figurine_element['data-figurine'] if figurine_element else ""
+            if piece_char == 'P': piece_char = "" 
+            parts = [elem.strip() for elem in content_span.descendants if isinstance(elem, NavigableString) and elem.strip()]
+            text_content_parts = "".join(parts)
+            if text_content_parts and text_content_parts[0].upper() in "KQRBN" and not piece_char: text_to_parse = text_content_parts 
+            else: text_to_parse = piece_char + text_content_parts
+        else: text_to_parse = ply_div.get_text(separator=' ', strip=True)
+        if not text_to_parse: return None
+        cleaned = re.sub(r"^\d+\.*\s*|[+#!?]", "", text_to_parse).strip() # Combined cleaning
+        m = re.match(r"(Pawn|Knight|Bishop|Rook|Queen|King)\s*([a-h]?[1-8]?x?[a-h][1-8])", cleaned, re.I)
+        if m: cleaned = {"Pawn": "", "Knight": "N", "Bishop": "B", "Rook": "R", "Queen": "Q", "King": "K"}[m.group(1).capitalize()] + m.group(2)
+        return cleaned if cleaned else None
 
     def get_scraped_moves(self) -> List[str]:
-        """Scrapes moves from the current chess.com game page."""
-        if not self.driver:
-            self.logger("Browser not open, cannot scrape moves.", log_type="debug")
-            return []
+        if not self.driver: return []
         try:
-            page_source = self.driver.page_source
-            soup = BeautifulSoup(page_source, 'html.parser')
+            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             moves_san: List[str] = []
-
-            turn_rows = soup.find_all('div', class_=lambda value: value and 'main-line-row' in value and 'move-list-row' in value)
-            
-            if turn_rows:
-                self.logger(f"Found {len(turn_rows)} 'main-line-row move-list-row' (turn rows).", log_type="debug")
-                for turn_row_div in turn_rows:
-                    ply_divs_in_row = turn_row_div.find_all('div', class_=lambda c: c and 'node' in c.split() and ('white-move' in c.split() or 'black-move' in c.split()) and 'main-line-ply' in c.split())
-                    for ply_div in ply_divs_in_row:
-                        if ply_div.find_parent(class_=lambda c: c and 'subline' in c.split()):
-                            continue 
-                        san = self._extract_san_from_ply_div(ply_div)
-                        if san:
-                            moves_san.append(san)
-            else:
-                self.logger("No 'main-line-row' (turn rows) found. Trying global ply search.", log_type="debug")
-                ply_divs_global = soup.find_all('div', class_=lambda c: c and 'node' in c.split() and ('white-move' in c.split() or 'black-move' in c.split()) and 'main-line-ply' in c.split())
-                if ply_divs_global:
-                    self.logger(f"Global Fallback: Found {len(ply_divs_global)} 'node main-line-ply' elements.", log_type="debug")
-                    for ply_div in ply_divs_global:
-                        if not ply_div.find_parent(class_=lambda c: c and 'subline' in c.split()):
+            move_list_wc = soup.find('wc-vertical-move-list')
+            if move_list_wc:
+                for ply_cand in move_list_wc.find_all('div', class_=['white', 'black'], recursive=True):
+                    parent = ply_cand.parent
+                    is_variation = False
+                    while parent and parent != move_list_wc:
+                        if any(cls in parent.get('class', []) for cls in ['variation', 'subline']): is_variation = True; break
+                        parent = parent.parent
+                    if not is_variation:
+                        san = self._extract_san_from_ply_div(ply_cand)
+                        if san: moves_san.append(san)
+            else: # Fallback
+                for turn_row in soup.find_all('div', class_=lambda v: v and 'main-line-row' in v):
+                    for ply_div in turn_row.find_all('div', class_=lambda c: c and 'node' in c and any(mc in c for mc in ['white','black','white-move','black-move']) and 'main-line-ply' in c):
+                        if not ply_div.find_parent(class_=lambda c: c and 'subline' in c):
                             san = self._extract_san_from_ply_div(ply_div)
-                            if san:
-                                moves_san.append(san)
-                else:
-                    self.logger("Global ply search failed. Trying 'wc-vertical-move-list'.", log_type="debug")
-                    move_list_wc = soup.find('wc-vertical-move-list')
-                    if move_list_wc:
-                        self.logger("Found 'wc-vertical-move-list'. Processing its children.", log_type="debug")
-                        potential_plies = move_list_wc.find_all('div', class_=['white', 'black'], recursive=True)
-                        for ply_candidate in potential_plies:
-                            is_subline = False; parent = ply_candidate.parent
-                            while parent and parent != move_list_wc:
-                                if 'subline' in parent.get('class', []): is_subline = True; break
-                                parent = parent.parent
-                            if is_subline: continue
-                            san = self._extract_san_from_ply_div(ply_candidate) 
                             if san: moves_san.append(san)
-                    else:
-                        self.logger("No moves found with any known selector.", log_type="debug")
-            
-            if not moves_san:
-                 self.logger("No moves extracted from page.", log_type="debug")
-            else:
-                self.logger(f"Final Scraped moves: {moves_san}", log_type="debug")
+            # self.logger(f"Scraped moves ({len(moves_san)}): {moves_san}", "debug")
             return moves_san
-        except Exception as e:
-            self.logger(f"Error scraping moves: {e}", log_type="debug")
-            return []
+        except Exception as e: self.logger(f"Error scraping moves: {e}", "debug"); return [] #pylint: disable=broad-except
+
+    def get_player_clock_time(self, player_color: chess.Color) -> Optional[float]:
+        if not self.driver: return None
+        try:
+            orientation = self.get_board_orientation()
+            clock_sel_bottom = "div.clock-bottom div.clock-time-text"
+            clock_sel_top = "div.clock-top div.clock-time-text"
+            target_sel = ""
+            if player_color == chess.WHITE: target_sel = clock_sel_bottom if orientation == "white_bottom" else clock_sel_top
+            else: target_sel = clock_sel_bottom if orientation == "black_bottom" else clock_sel_top
+            if not target_sel: return None
+            time_str = self.driver.find_element(By.CSS_SELECTOR, target_sel).text.strip()
+            parts = [float(p) for p in time_str.split(':')]
+            return parts[0] * 60 + parts[1] if len(parts) == 2 else parts[0]
+        except Exception: return None #pylint: disable=broad-except
+
+    def get_board_orientation(self) -> str: # "white_bottom" or "black_bottom"
+        if not self.driver: return "white_bottom" 
+        try:
+            try: # Check wc-chess-board first
+                if "flipped" in self.driver.find_element(By.TAG_NAME, "wc-chess-board").get_attribute("class"): return "black_bottom"
+                return "white_bottom"
+            except NoSuchElementException: pass # Fallback
+            if self.driver.find_element(By.XPATH, "//*[(contains(@id, 'board-') or contains(@class, 'board')) and contains(@class, 'flipped')]"):
+                return "black_bottom"
+        except Exception: pass #pylint: disable=broad-except
+        return "white_bottom" 
 
     def quit_browser(self) -> None:
-        """Quits the WebDriver if it's running."""
         if self.driver:
-            self.logger("Quitting browser.", log_type="debug")
-            try:
-                self.driver.quit()
-            except Exception as e:
-                self.logger(f"Error quitting browser: {e}", log_type="debug")
-            finally:
-                self.driver = None
+            try: self.driver.quit()
+            except Exception as e: self.logger(f"Error quitting: {e}", "debug") #pylint: disable=broad-except
+            finally: self.driver = None

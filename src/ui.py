@@ -1,36 +1,29 @@
+# ui.py
 import customtkinter as ctk
 from tkinter import messagebox
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import ElementNotInteractableException, TimeoutException
-from webdriver_manager.chrome import ChromeDriverManager
 import chess
 import time
-from bs4 import BeautifulSoup, NavigableString
-from dotenv import dotenv_values
-import os
 import re
-import subprocess
-import shutil # For shutil.which
+import os
+import shutil
+import subprocess # Only used by ChessEngineCommunicator indirectly
+from typing import Optional, List, Callable # Corrected import for subprocess in other files
+import threading
+# import random # random is used in auto_player, not directly here
 
-# Import from other modules
 from config import (
-    CHESS_USERNAME, CHESS_PASSWORD, DEFAULT_ENGINE_NAME, 
+    CHESS_USERNAME, CHESS_PASSWORD, DEFAULT_ENGINE_NAME,
     WINDOW_TITLE, DEFAULT_WINDOW_SIZE, DEBUG_WINDOW_SIZE,
-    ENGINE_PATH_LOCAL, ENGINE_PATH_LOCAL_EXE, BASE_DIR
+    ENGINE_PATH_LOCAL, ENGINE_PATH_LOCAL_EXE, BASE_DIR,
+    FAILSAFE_KEY
 )
 from browser_automation import BrowserManager
 from engine_communication import ChessEngineCommunicator
-from typing import Optional
+from auto_player import AutoPlayer
+from keyboard_listener import KeyboardListener
 
 
 class ChessApp(ctk.CTk):
-    """
-    Main application class for the Chess.com AI Helper GUI.
-    """
     def __init__(self):
         super().__init__()
         self.title(WINDOW_TITLE)
@@ -39,37 +32,40 @@ class ChessApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
 
         self.internal_board: chess.Board = chess.Board()
-        
         self.browser_manager: BrowserManager = BrowserManager(self.add_to_output)
         self.engine_communicator: Optional[ChessEngineCommunicator] = None
+        self.auto_player_instance: Optional[AutoPlayer] = None
+        self.auto_play_thread: Optional[threading.Thread] = None
+        self.bot_color_for_auto_play: Optional[chess.Color] = None
+        self.keyboard_listener_instance: Optional[KeyboardListener] = None
 
         self._setup_ui()
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _setup_ui(self) -> None:
-        """Creates and packs all UI widgets."""
         self.main_frame = ctk.CTkFrame(self)
         self.main_frame.pack(pady=10, padx=10, fill="both", expand=True)
-
         button_frame = ctk.CTkFrame(self.main_frame)
         button_frame.pack(pady=5, padx=5, fill="x")
 
         self.btn_open_browser = ctk.CTkButton(button_frame, text="Open Browser", command=self._open_browser_command_handler)
         self.btn_open_browser.pack(pady=5, padx=5, fill="x")
-        
         self.btn_login = ctk.CTkButton(button_frame, text="Login", command=self._login_command_handler, state="disabled")
         self.btn_login.pack(pady=5, padx=5, fill="x")
-        
         self.btn_get_board = ctk.CTkButton(button_frame, text="Get Virtual Board", command=self._get_board_command_handler, state="disabled")
         self.btn_get_board.pack(pady=5, padx=5, fill="x")
-        
         self.btn_get_fen = ctk.CTkButton(button_frame, text="Get FEN", command=self._get_fen_command_handler, state="disabled")
         self.btn_get_fen.pack(pady=5, padx=5, fill="x")
-        
         self.btn_run_bot = ctk.CTkButton(button_frame, text=f"Run Bot ({DEFAULT_ENGINE_NAME})", command=self._run_bot_command_handler, state="disabled")
         self.btn_run_bot.pack(pady=5, padx=5, fill="x")
 
-        # New Clear Chat Button
+        auto_play_mode_frame = ctk.CTkFrame(button_frame)
+        auto_play_mode_frame.pack(pady=5, padx=0, fill="x", expand=True)
+        self.btn_bullet_bot = ctk.CTkButton(auto_play_mode_frame, text="Play Bullet", command=lambda: self._toggle_auto_play_mode_handler("bullet"), state="disabled")
+        self.btn_bullet_bot.pack(side="left", pady=0, padx=(0,2.5), fill="x", expand=True)
+        self.btn_blitz_bot = ctk.CTkButton(auto_play_mode_frame, text="Play Blitz", command=lambda: self._toggle_auto_play_mode_handler("blitz"), state="disabled")
+        self.btn_blitz_bot.pack(side="right", pady=0, padx=(2.5,0), fill="x", expand=True)
+
         self.btn_clear_chat = ctk.CTkButton(button_frame, text="Clear Output", command=self._clear_output_command_handler)
         self.btn_clear_chat.pack(pady=5, padx=5, fill="x")
         
@@ -80,15 +76,12 @@ class ChessApp(ctk.CTk):
 
         self.btn_toggle_debug_logs = ctk.CTkButton(self.main_frame, text="Show Debug Logs", command=self._toggle_debug_logs_command_handler, height=28)
         self.btn_toggle_debug_logs.pack(pady=(5,0), padx=5, fill="x")
-
         self.debug_logs_visible: bool = False
         self.debug_log_textbox_frame = ctk.CTkFrame(self.main_frame)
         self.debug_log_textbox = ctk.CTkTextbox(self.debug_log_textbox_frame, wrap="word", state="disabled", height=150)
         self.debug_log_textbox.pack(fill="both", expand=True, padx=5, pady=5)
-        # debug_log_textbox_frame is not packed initially
 
     def _toggle_debug_logs_command_handler(self) -> None:
-        """Shows or hides the debug log textbox."""
         if self.debug_logs_visible:
             self.debug_log_textbox_frame.pack_forget()
             self.btn_toggle_debug_logs.configure(text="Show Debug Logs")
@@ -100,184 +93,201 @@ class ChessApp(ctk.CTk):
         self.debug_logs_visible = not self.debug_logs_visible
 
     def add_to_output(self, message: str, log_type: str = "user") -> None:
-        """Adds a message to the appropriate output textbox without timestamp."""
-        # current_time = time.strftime('%H:%M:%S') # Removed timestamp
-        # formatted_message = f"{current_time} - {message}\n"
-        formatted_message = f"{message}\n" # No timestamp
-        
-        target_textbox = self.output_textbox
-        if log_type == "debug":
-            target_textbox = self.debug_log_textbox
-        
-        target_textbox.configure(state="normal")
-        target_textbox.insert("end", formatted_message)
-        target_textbox.see("end")
-        target_textbox.configure(state="disabled")
+        formatted_message = f"{message}\n"
+        target_textbox = self.output_textbox if log_type == "user" else self.debug_log_textbox
+        def _update_textbox():
+            target_textbox.configure(state="normal")
+            target_textbox.insert("end", formatted_message)
+            target_textbox.see("end")
+            target_textbox.configure(state="disabled")
+        if threading.current_thread() is threading.main_thread(): _update_textbox()
+        else: self.after(0, _update_textbox)
         self.update_idletasks()
 
     def _clear_output_command_handler(self) -> None:
-        """Clears the main output and debug log textboxes."""
-        self.output_textbox.configure(state="normal")
-        self.output_textbox.delete("1.0", "end")
-        self.output_textbox.configure(state="disabled")
-
-        self.debug_log_textbox.configure(state="normal")
-        self.debug_log_textbox.delete("1.0", "end")
-        self.debug_log_textbox.configure(state="disabled")
-        
-        self.add_to_output("Output cleared.", log_type="user") # Add a confirmation message
+        for tb in [self.output_textbox, self.debug_log_textbox]:
+            tb.configure(state="normal"); tb.delete("1.0", "end"); tb.configure(state="disabled")
+        self.add_to_output("Output cleared.", log_type="user")
 
     def on_closing(self) -> None:
-        """Handles window close event."""
         self.add_to_output("Closing application...", log_type="debug")
-        if self.engine_communicator:
-            self.engine_communicator.stop_engine()
-        if self.browser_manager:
-            self.browser_manager.quit_browser()
+        self._stop_auto_play_components(log_message=False)
+        if self.engine_communicator: self.engine_communicator.stop_engine()
+        if self.browser_manager: self.browser_manager.quit_browser()
         self.destroy()
 
-    def _open_browser_command_handler(self) -> None:
-        """Handles the 'Open Browser' button click."""
-        if self.browser_manager.open_browser():
-            self.btn_login.configure(state="normal")
-            self.btn_get_board.configure(state="normal")
-            self.btn_get_fen.configure(state="normal")
-            self.btn_run_bot.configure(state="normal")
-        else:
-            messagebox.showerror("Browser Error", "Could not open browser. Check debug logs.")
-            
-    def _login_command_handler(self) -> None:
-        """Handles the 'Login' button click."""
-        if not CHESS_USERNAME or not CHESS_PASSWORD:
-            self.add_to_output("Username or Password not set in .env file.", log_type="user")
-            messagebox.showerror("Config Error", "Chess username/password not configured in .env")
-            return
-        if not self.browser_manager.login(CHESS_USERNAME, CHESS_PASSWORD):
-            messagebox.showwarning("Login Failed", "Login attempt failed. Check credentials or website status. See logs for details.")
-
-    def _update_internal_board_state(self) -> bool:
-        """Updates the internal chess board from scraped moves."""
-        self.internal_board.reset()
-        scraped_moves = self.browser_manager.get_scraped_moves()
-        if not scraped_moves:
-            self.add_to_output("No moves found to update board.", log_type="user")
-            return False
-        
-        parsed_count = 0
-        for move_san_original in scraped_moves:
-            try:
-                move_san_cleaned = re.sub(r"^\d+\.*\s*", "", move_san_original).strip()
-                if not move_san_cleaned: continue
-                
-                self.internal_board.push_san(move_san_cleaned)
-                parsed_count += 1
-            except ValueError as e:
-                self.add_to_output(f"Error parsing move '{move_san_original}' (cleaned: '{move_san_cleaned}'): {e}. Board may be out of sync.", log_type="debug")
-            except NameError as ne: 
-                 self.add_to_output(f"CRITICAL NameError parsing move '{move_san_original}': {ne}. This indicates 're' module is not imported.", log_type="debug")
-            except Exception as e:
-                self.add_to_output(f"Unexpected error parsing move '{move_san_original}': {e}", log_type="debug")
-        
-        if parsed_count > 0:
-            self.add_to_output(f"Internal board updated with {parsed_count} moves.", log_type="debug")
-            return True
-        elif not scraped_moves:
-            return False
-        else:
-            self.add_to_output("All scraped moves failed to parse. Board not updated.", log_type="user")
-            return False
-
-    def _get_board_command_handler(self) -> None:
-        """Handles the 'Get Virtual Board' button click."""
-        if self._update_internal_board_state():
-            self.add_to_output("--- Current Virtual Board ---", log_type="user")
-            self.add_to_output(f"\n{self.internal_board}\n", log_type="user") 
-            self.add_to_output("---------------------------", log_type="user")
-        else:
-            self.add_to_output("Could not display board (update failed or no moves).", log_type="user")
-
-    def _get_fen_command_handler(self) -> None:
-        """Handles the 'Get FEN' button click."""
-        if self._update_internal_board_state():
-            fen = self.internal_board.fen()
-            self.add_to_output(f"FEN: {fen}", log_type="user")
-        else:
-            self.add_to_output("Could not get FEN (board update failed or no moves).", log_type="user")
-
-    def _run_bot_command_handler(self) -> None:
-        """Handles the 'Run Bot' button click."""
-        self.add_to_output(f"Run Bot ({DEFAULT_ENGINE_NAME}) initiated.", log_type="user")
+    def _ensure_engine_ready(self) -> bool:
         if not self.browser_manager.driver:
-            self.add_to_output("Browser not open. Please open the browser first.", log_type="user")
-            return
-        if not self._update_internal_board_state():
-            self.add_to_output("Board update failed. Cannot run bot.", log_type="user")
-            return
-        if self.internal_board.is_game_over():
-            self.add_to_output(f"Game is over ({self.internal_board.result()}). Bot not run.", log_type="user")
-            return
-
-        current_fen = self.internal_board.fen()
-        self.add_to_output(f"Current FEN for engine: {current_fen}", log_type="debug")
-
+            self.add_to_output("Browser not open.", "user"); return False
         final_engine_path = None
-        if os.path.exists(ENGINE_PATH_LOCAL):
-            final_engine_path = ENGINE_PATH_LOCAL
-        elif os.name == 'nt' and os.path.exists(ENGINE_PATH_LOCAL_EXE):
-            final_engine_path = ENGINE_PATH_LOCAL_EXE
-        else: 
+        if os.path.exists(ENGINE_PATH_LOCAL): final_engine_path = ENGINE_PATH_LOCAL
+        elif os.name == 'nt' and os.path.exists(ENGINE_PATH_LOCAL_EXE): final_engine_path = ENGINE_PATH_LOCAL_EXE
+        else:
             path_from_shutil = shutil.which(DEFAULT_ENGINE_NAME) or \
                                (os.name == 'nt' and shutil.which(f"{DEFAULT_ENGINE_NAME}.exe"))
-            if path_from_shutil:
-                final_engine_path = path_from_shutil
-        
+            if path_from_shutil: final_engine_path = path_from_shutil
         if not final_engine_path:
-            err_msg = f"Engine '{DEFAULT_ENGINE_NAME}' (or .exe) not found in script directory or PATH."
-            self.add_to_output(err_msg, log_type="user")
-            messagebox.showerror("Engine Not Found", err_msg)
-            return
-        
-        self.add_to_output(f"Using engine at: {final_engine_path}", log_type="debug")
-
+            err_msg = f"Engine '{DEFAULT_ENGINE_NAME}' not found."
+            self.add_to_output(err_msg, "user"); messagebox.showerror("Engine Not Found", err_msg); return False
+        self.add_to_output(f"Using engine: {final_engine_path}", "debug")
         if self.engine_communicator is None or \
            not self.engine_communicator.engine_process or \
            self.engine_communicator.engine_process.poll() is not None or \
            self.engine_communicator.engine_path != final_engine_path:
             try:
-                if self.engine_communicator:
-                    self.engine_communicator.stop_engine()
-                self.add_to_output(f"Initializing {DEFAULT_ENGINE_NAME}...", log_type="debug")
+                if self.engine_communicator: self.engine_communicator.stop_engine()
+                self.add_to_output(f"Initializing {DEFAULT_ENGINE_NAME}...", "debug")
                 self.engine_communicator = ChessEngineCommunicator(final_engine_path, self.add_to_output)
-            except OSError as e:
-                 self.add_to_output(f"Engine OS Error: {e}. Ensure it's for your OS.",log_type="user"); self.engine_communicator = None; return
-            except Exception as e:
-                self.add_to_output(f"Failed to initialize {DEFAULT_ENGINE_NAME}: {e}", log_type="user")
-                messagebox.showerror("Engine Error", f"Failed to initialize {DEFAULT_ENGINE_NAME}: {e}")
-                self.engine_communicator = None; return
-        
+            except Exception as e: # pylint: disable=broad-except
+                self.add_to_output(f"Failed to init {DEFAULT_ENGINE_NAME}: {e}", "user")
+                messagebox.showerror("Engine Error", f"Failed to init {DEFAULT_ENGINE_NAME}: {e}")
+                self.engine_communicator = None; return False
+        return bool(self.engine_communicator and self.engine_communicator.engine_process and \
+               self.engine_communicator.engine_process.poll() is None)
+
+    def _open_browser_command_handler(self) -> None:
+        if self.browser_manager.open_browser():
+            for btn in [self.btn_login, self.btn_get_board, self.btn_get_fen, self.btn_run_bot, self.btn_bullet_bot, self.btn_blitz_bot]:
+                btn.configure(state="normal")
+        else: messagebox.showerror("Browser Error", "Could not open browser.")
+            
+    def _login_command_handler(self) -> None:
+        if not CHESS_USERNAME or not CHESS_PASSWORD:
+            self.add_to_output("Username/Password not set in .env.", "user")
+            messagebox.showerror("Config Error", "Chess username/password not set in .env")
+            return
+        if not self.browser_manager.login(CHESS_USERNAME, CHESS_PASSWORD):
+            messagebox.showwarning("Login Failed", "Login failed. Check credentials/website.")
+
+    def _update_internal_board_state(self) -> bool:
+        self.internal_board.reset() 
+        scraped_moves = self.browser_manager.get_scraped_moves()
+        if not scraped_moves:
+            self.add_to_output("No moves scraped. Board reset to initial.", "debug"); return True
+        parsed_count = 0
+        for move_san_original in scraped_moves:
+            try:
+                move_san_cleaned = re.sub(r"^\d+\.*\s*", "", move_san_original).strip()
+                if not move_san_cleaned: continue
+                self.internal_board.push_san(move_san_cleaned); parsed_count += 1
+            except Exception as e: # pylint: disable=broad-except
+                self.add_to_output(f"Error parsing '{move_san_original}': {e}", "debug")
+        if parsed_count == len(scraped_moves) and parsed_count > 0 :
+            self.add_to_output(f"Board updated: {parsed_count} moves. FEN: {self.internal_board.fen()}", "debug"); return True
+        elif parsed_count > 0:
+            self.add_to_output(f"Board partially updated: {parsed_count}/{len(scraped_moves)}. FEN: {self.internal_board.fen()}", "debug"); return True
+        else:
+            self.add_to_output("All scraped moves failed parsing. Board state may be incorrect.", "user"); return False
+
+    def _get_board_command_handler(self) -> None:
+        if self._update_internal_board_state():
+            if not self.internal_board.move_stack: self.add_to_output("Board is initial.", "user")
+            self.add_to_output("--- Virtual Board ---\n" + str(self.internal_board) + "\n-------------------", "user")
+        else: self.add_to_output("Could not display board (parse failed).", "user")
+
+    def _get_fen_command_handler(self) -> None:
+        if self._update_internal_board_state():
+            if not self.internal_board.move_stack: self.add_to_output("Board is initial.", "user")
+            self.add_to_output(f"FEN: {self.internal_board.fen()}", "user")
+        else: self.add_to_output("Could not get FEN (parse failed).", "user")
+
+    def _run_bot_command_handler(self) -> None:
+        self.add_to_output(f"Suggest move ({DEFAULT_ENGINE_NAME})...", "user")
+        if not self._ensure_engine_ready(): self.add_to_output("Engine not ready.", "user"); return
+        board_updated = self._update_internal_board_state()
+        if not board_updated and self.internal_board.move_stack:
+            self.add_to_output("Board update failed (parse error).", "user"); return
+        if self.internal_board.is_game_over():
+            self.add_to_output(f"Game over ({self.internal_board.result()}).", "user"); return
+        current_fen = self.internal_board.fen()
+        self.add_to_output(f"FEN for engine: {current_fen}", "debug")
         if self.engine_communicator and self.engine_communicator.engine_process and \
            self.engine_communicator.engine_process.poll() is None:
             try:
-                self.add_to_output(f"Requesting best move from {DEFAULT_ENGINE_NAME}...", log_type="debug")
                 movetime_ms = min(max(self.internal_board.ply() * 70 + 1000, 500), 5000) 
-                self.add_to_output(f"Engine thinking for {movetime_ms}ms...", log_type="debug")
-                
+                self.add_to_output(f"Engine thinking ({movetime_ms}ms)...", "debug")
                 best_move_uci = self.engine_communicator.get_best_move(current_fen, movetime_ms=movetime_ms)
-                
                 if best_move_uci and best_move_uci != "(none)":
                     try:
                         move_obj = self.internal_board.parse_uci(best_move_uci)
-                        best_move_san = self.internal_board.san(move_obj)
-                        self.add_to_output(f"Suggested Move: {best_move_san} (UCI: {best_move_uci})", log_type="user")
-                    except Exception as parse_e:
-                        self.add_to_output(f"Suggested Move (UCI): {best_move_uci} (SAN parse error: {parse_e})", log_type="user")
-                elif best_move_uci == "(none)":
-                    self.add_to_output(f"{DEFAULT_ENGINE_NAME} returned (none) - game might be over or no legal moves for current side.", log_type="user")
-                else: 
-                    self.add_to_output(f"{DEFAULT_ENGINE_NAME} did not return a valid best move string or timed out.", log_type="user")
-            except Exception as e:
-                self.add_to_output(f"Error communicating with {DEFAULT_ENGINE_NAME}: {e}", log_type="user")
-                messagebox.showerror("Engine Communication Error", f"Error: {e}")
-                if self.engine_communicator: self.engine_communicator.stop_engine(); self.engine_communicator = None
-        else:
-            self.add_to_output(f"{DEFAULT_ENGINE_NAME} is not running or failed to initialize.", log_type="user")
+                        self.add_to_output(f"Suggested: {self.internal_board.san(move_obj)} (UCI: {best_move_uci})", "user")
+                    except Exception as e: self.add_to_output(f"Suggested (UCI): {best_move_uci} (SAN parse error: {e})", "user") # pylint: disable=broad-except
+                elif best_move_uci == "(none)": self.add_to_output(f"{DEFAULT_ENGINE_NAME} returned (none).", "user")
+                else: self.add_to_output(f"{DEFAULT_ENGINE_NAME} no valid move/timed out.", "user")
+            except Exception as e: # pylint: disable=broad-except
+                self.add_to_output(f"Error with {DEFAULT_ENGINE_NAME}: {e}", "user")
+                messagebox.showerror("Engine Error", f"Error: {e}")
+        else: self.add_to_output(f"{DEFAULT_ENGINE_NAME} not running/failed init.", "user")
+
+    def _get_player_clock_time_stub(self, color_to_check: chess.Color) -> Optional[float]:
+        return self.browser_manager.get_player_clock_time(color_to_check)
+
+    def _handle_auto_play_stop_request(self):
+        if self.auto_player_instance and self.auto_player_instance.is_playing:
+            self.add_to_output(f"Auto-play stop via key '{FAILSAFE_KEY.upper()}' or button.", "user")
+            self._stop_auto_play_components()
+
+    def _stop_auto_play_components(self, log_message=True):
+        if self.keyboard_listener_instance:
+            if log_message: self.add_to_output("Stopping keyboard listener...", "debug")
+            self.keyboard_listener_instance.stop(); self.keyboard_listener_instance = None
+        if self.auto_player_instance and self.auto_player_instance.is_playing:
+            if log_message: self.add_to_output(f"Stopping auto-play ({self.auto_player_instance.game_mode})...", "user")
+            self.auto_player_instance.stop_playing()
+            if self.auto_play_thread and self.auto_play_thread.is_alive():
+                if log_message: self.add_to_output("Waiting for auto-play thread...", "debug")
+                self.auto_play_thread.join(timeout=1.5)
+        self.auto_player_instance = None; self.auto_play_thread = None
+        self.after(0, self.update_auto_play_ui_on_stop)
+
+    def _toggle_auto_play_mode_handler(self, mode: str) -> None:
+        if self.auto_player_instance and self.auto_player_instance.is_playing:
+            self._stop_auto_play_components(); return
+        self.add_to_output(f"Starting auto-play: {mode}...", "user")
+        if not self._ensure_engine_ready(): self.add_to_output("Engine not ready.", "user"); return
+        initial_board_updated = self._update_internal_board_state()
+        if not initial_board_updated and self.internal_board.move_stack:
+            self.add_to_output("Board update failed (parse error).", "user"); return
+        if self.internal_board.is_game_over():
+            self.add_to_output(f"Game over ({self.internal_board.result()}).", "user"); return
+        self.bot_color_for_auto_play = self.internal_board.turn
+        self.add_to_output(f"Bot plays as {'White' if self.bot_color_for_auto_play == chess.WHITE else 'Black'}.", "user")
+        if not self.engine_communicator: self.add_to_output("Engine not available.", "user"); return
+
+        self.auto_player_instance = AutoPlayer(
+            self.engine_communicator, self.internal_board, self._update_internal_board_state,
+            self.add_to_output, self._get_player_clock_time_stub, self.browser_manager.get_board_orientation
+        )
+        self.auto_player_instance.set_ui_update_on_stop_cb(self.update_auto_play_ui_on_stop)
+        self.auto_player_instance.start_playing(mode, self.bot_color_for_auto_play)
+        self.auto_play_thread = threading.Thread(target=self.auto_player_instance.play_loop, daemon=True)
+        self.auto_play_thread.start()
+
+        self.keyboard_listener_instance = KeyboardListener(
+            FAILSAFE_KEY, self._handle_auto_play_stop_request, self.add_to_output
+        )
+        self.keyboard_listener_instance.start()
+        self.add_to_output(f"Keyboard failsafe: Press '{FAILSAFE_KEY.upper()}' to stop.", "user")
+
+        btn_clicked = self.btn_bullet_bot if mode == "bullet" else self.btn_blitz_bot
+        btn_other = self.btn_blitz_bot if mode == "bullet" else self.btn_bullet_bot
+        btn_clicked.configure(text=f"Stop {mode.capitalize()}"); btn_other.configure(state="disabled")
+        for btn in [self.btn_run_bot, self.btn_get_board, self.btn_get_fen]: btn.configure(state="disabled")
+
+    def update_auto_play_ui_on_stop(self):
+        btn_state = "normal" if self.browser_manager.driver else "disabled"
+        self.btn_bullet_bot.configure(text="Play Bullet", state=btn_state)
+        self.btn_blitz_bot.configure(text="Play Blitz", state=btn_state)
+        for btn in [self.btn_run_bot, self.btn_get_board, self.btn_get_fen]: btn.configure(state=btn_state)
+        self.add_to_output("Auto-play UI reset.", "debug")
+
+if __name__ == "__main__":
+    if not CHESS_USERNAME or not CHESS_PASSWORD:
+        print(f"CRITICAL: Credentials not in .env (expected at {os.path.join(BASE_DIR, '.env')}).")
+        try:
+            temp_root = ctk.CTk(); temp_root.withdraw()
+            messagebox.showerror("Config Error", "Credentials not in .env. Please create and restart.")
+            temp_root.destroy()
+        except Exception: pass # pylint: disable=broad-except
+    app = ChessApp()
+    app.mainloop()
