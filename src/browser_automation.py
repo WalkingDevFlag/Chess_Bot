@@ -1,6 +1,3 @@
-# browser_automation.py
-# No changes needed based on the user's last request regarding square size or perspective clarification.
-# The perspective logic is already in place. Square size is a config value used by AutoPlayer.
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By

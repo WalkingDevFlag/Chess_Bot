@@ -1,4 +1,3 @@
-# auto_player.py
 import pyautogui
 import time
 import random

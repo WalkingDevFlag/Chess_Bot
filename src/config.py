@@ -1,6 +1,6 @@
 import os
 from dotenv import dotenv_values
-import sys # Import sys
+import sys 
 
 # Determine base directory
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -23,10 +23,10 @@ CHESS_USERNAME: str | None = config_env.get("CHESS_USERNAME")
 CHESS_PASSWORD: str | None = config_env.get("CHESS_PASSWORD")
 
 DEFAULT_ENGINE_NAME: str = "Ethereal-9.00" 
-ENGINE_PATH_LOCAL: str = DEFAULT_ENGINE_NAME 
-ENGINE_PATH_LOCAL_EXE: str = f"{DEFAULT_ENGINE_NAME}.exe"
+ENGINE_PATH_LOCAL: str = f'src/{DEFAULT_ENGINE_NAME}' 
+ENGINE_PATH_LOCAL_EXE: str = f"src/{DEFAULT_ENGINE_NAME}.exe"
 
-WINDOW_TITLE: str = "Chess.com Cheater HEHEHEHEHEHEHE" 
+WINDOW_TITLE: str = "Chess_Bot_v1.3.0" 
 DEFAULT_WINDOW_SIZE: str = '450x700'
 DEBUG_WINDOW_SIZE: str = '450x850'
 

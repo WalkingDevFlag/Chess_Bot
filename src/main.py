@@ -1,5 +1,3 @@
-# main.py
-# No changes needed for this request.
 import customtkinter as ctk
 from tkinter import messagebox
 import os

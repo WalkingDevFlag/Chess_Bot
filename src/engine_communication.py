@@ -1,5 +1,3 @@
-# engine_communication.py
-# No changes needed for this request.
 import subprocess
 import time
 import os

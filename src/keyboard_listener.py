@@ -1,5 +1,3 @@
-# keyboard_listener.py
-# No changes needed for this request.
 import threading
 from pynput import keyboard
 from typing import Callable, Optional
