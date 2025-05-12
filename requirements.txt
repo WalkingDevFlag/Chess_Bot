@@ -7,3 +7,8 @@ tk
 bs4
 python-dotenv
 webdriver-manager
+numpy
+pillow
+tensorflow
+opencv-python
+board_to_fen

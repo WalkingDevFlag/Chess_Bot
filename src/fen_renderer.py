@@ -1,8 +1,8 @@
 from PIL import Image
-
+import numpy as np
 import os
 
-def render_fen(fen, assets_dir='chess_pieces', output_dir='fen_rendered', board_image='board.png'):
+def render_fen(fen, assets_dir='assets', output_dir='fen_rendered', board_image='board.png'):
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
@@ -41,7 +41,6 @@ def render_fen(fen, assets_dir='chess_pieces', output_dir='fen_rendered', board_
     result.save(out_path)
     print(f"Rendered → {out_path}")
 
-# Example usage
 if __name__ == "__main__":
     test_fen = "r3kb1r/pp4pp/2ppp3/3B4/6n1/5N2/PP3PPP/R1B1K2R w KQkq - 0 16"
     render_fen(test_fen)
