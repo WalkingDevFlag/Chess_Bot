@@ -4,8 +4,7 @@ import chess
 from typing import Callable, Optional, Tuple
 
 from chess_utils import uci_to_screen_coords
-# Updated import: input_automation now provides higher-level actions
-import input_automation # No longer importing individual functions like make_move_on_screen
+import input_automation
 
 class AutoPlayer:
     def __init__(self,
@@ -17,20 +16,18 @@ class AutoPlayer:
                  get_board_orientation_cb: Callable[[], str]
                 ):
         self.engine_comm = engine_communicator
-        self.internal_board = internal_board_ref
+        self.internal_board = internal_board_ref # This board's turn is the perspective of the FEN sent
         self.update_internal_board = update_internal_board_cb
-        self.logger = add_to_output_cb # This logger is passed to input_automation
+        self.logger = add_to_output_cb
         self.get_player_clock = get_player_clock_cb
         self.get_board_orientation = get_board_orientation_cb
 
         self.is_playing: bool = False
         self.game_mode: Optional[str] = None
-        self.bot_color: Optional[chess.Color] = None
+        self.bot_color: Optional[chess.Color] = None # The color the bot is playing as
         self.ui_update_on_stop_cb: Optional[Callable[[], None]] = None
 
-        # The logger is now initialized into input_automation globally via ui.py
-        # No need to pass it per call to input_automation functions if it's set globally.
-
+    # ... (set_ui_update_on_stop_cb, _get_move_delay_and_engine_time, _make_move_on_screen, start_playing, stop_playing are unchanged) ...
     def set_ui_update_on_stop_cb(self, cb: Callable[[], None]):
         self.ui_update_on_stop_cb = cb
 
@@ -48,43 +45,32 @@ class AutoPlayer:
         else: # Default fallback
             engine_movetime_ms = 500
             base_delay_min, base_delay_max = (0.5, 1.0)
+
         pre_move_action_delay = random.uniform(base_delay_min, base_delay_max)
+        pre_move_action_delay = max(0.01, pre_move_action_delay)
+
         self.logger(f"Mode: {self.game_mode}, Clock: {remaining_time_s if remaining_time_s is not None else 'N/A'}. "
                     f"Human Delay: {pre_move_action_delay:.2f}s, Engine Time: {engine_movetime_ms}ms", "debug")
         return pre_move_action_delay, engine_movetime_ms
 
     def _make_move_on_screen(self, from_sq_coord: Tuple[int, int], to_sq_coord: Tuple[int, int]):
-        """
-        Makes a chess move on screen (e.g., e2 to e4) by moving to and clicking
-        the start square, then moving to and clicking the end square.
-        Uses Perlin noise for mouse movements if enabled.
-        """
         try:
             self.logger(f"Performing screen move from {from_sq_coord} to {to_sq_coord}", "debug")
-
-            # Action on the 'from' square
             input_automation.perform_mouse_action_at(
                 from_sq_coord[0], from_sq_coord[1], action="move_and_click"
             )
-
-            time.sleep(random.uniform(0.05, 0.12)) # Small pause between the two clicks
-
-            # Action on the 'to' square
+            time.sleep(random.uniform(0.05, 0.12))
             input_automation.perform_mouse_action_at(
                 to_sq_coord[0], to_sq_coord[1], action="move_and_click"
             )
             self.logger(f"Screen move executed.", "debug")
-
         except Exception as e:
             self.logger(f"Error making move on screen: {e}", "user")
 
 
     def start_playing(self, mode: str, bot_plays_as_color: chess.Color):
-        if self.is_playing:
-            self.logger("AutoPlayer is already playing.", "user"); return
-        if not self.engine_comm:
-            self.logger("Engine communicator not available for AutoPlayer.", "user"); return
-
+        if self.is_playing: self.logger("AutoPlayer is already playing.", "user"); return
+        if not self.engine_comm: self.logger("Engine communicator not available.", "user"); return
         self.is_playing = True
         self.game_mode = mode
         self.bot_color = bot_plays_as_color
@@ -106,6 +92,9 @@ class AutoPlayer:
                 if self.internal_board.is_game_over():
                     self.logger(f"Game over: {self.internal_board.result()}. Stopping auto-play.", "user")
                     break
+                
+                # Crucial: engine evaluation is from the perspective of self.internal_board.turn
+                # For the bot's move, self.internal_board.turn should BE self.bot_color
                 if self.internal_board.turn != self.bot_color:
                     time.sleep(0.2); continue
 
@@ -113,7 +102,8 @@ class AutoPlayer:
                 remaining_time_s = self.get_player_clock(self.bot_color) if self.get_player_clock else None
                 pre_move_action_delay, engine_movetime_ms = self._get_move_delay_and_engine_time(remaining_time_s)
                 current_fen = self.internal_board.fen()
-                best_move_uci = self.engine_comm.get_best_move(current_fen, movetime_ms=engine_movetime_ms)
+
+                best_move_uci, raw_score, is_mate_score = self.engine_comm.get_best_move_and_eval(current_fen, movetime_ms=engine_movetime_ms)
 
                 if not self.is_playing: break
 
@@ -122,28 +112,47 @@ class AutoPlayer:
                         move_obj = self.internal_board.parse_uci(best_move_uci)
                         move_san = self.internal_board.san(move_obj)
                         self.logger(f"Engine suggests: {move_san} (UCI: {best_move_uci})", "user")
-                        
+
+                        if raw_score is not None:
+                            perspective_str = "Bot's Perspective" # Since self.internal_board.turn == self.bot_color here
+                            if is_mate_score:
+                                if raw_score > 0: # Bot is mating
+                                    self.logger(f"Board Evaluation ({perspective_str}): Mate in {raw_score}", "user")
+                                else: # Bot is being mated
+                                    self.logger(f"Board Evaluation ({perspective_str}): Mated in {abs(raw_score)}", "user")
+                            else: # Centipawn score
+                                eval_pawn_units = raw_score / 100.0
+                                self.logger(f"Board Evaluation ({perspective_str}): {eval_pawn_units:+.2f}", "user")
+                        else:
+                            self.logger("Board Evaluation: Not available.", "user")
+
                         coords = uci_to_screen_coords(best_move_uci, self.get_board_orientation, self.logger)
-                        
                         if coords:
                             from_coord, to_coord = coords
                             self.logger(f"Making move {best_move_uci} after {pre_move_action_delay:.2f}s delay.", "debug")
                             time.sleep(pre_move_action_delay)
                             if not self.is_playing: break
-                            
-                            self._make_move_on_screen(from_coord, to_coord) # Uses Perlin if enabled
-                            
-                            time.sleep(random.uniform(0.2, 0.5)) 
+                            self._make_move_on_screen(from_coord, to_coord)
+                            time.sleep(random.uniform(0.2, 0.5))
                         else:
                             self.logger(f"Could not get screen coords for {best_move_uci}. Stopping.", "user"); break
                     except ValueError:
                         self.logger(f"Engine proposed illegal move {best_move_uci} for FEN {current_fen}. Stopping.", "user"); break
                     except Exception as e:
                         self.logger(f"Unexpected error processing/making move {best_move_uci}: {e}", "user"); break
-                elif best_move_uci == "(none)":
-                    self.logger("Engine returned (none). Stopping.", "user"); break
+                elif best_move_uci == "(none)": # Game might be over (stalemate, checkmate)
+                    self.logger("Engine returned (none) - game might be over or no legal moves. Stopping.", "user")
+                    if raw_score is not None: # Log final eval if available
+                        perspective_str = "Bot's Perspective"
+                        if is_mate_score:
+                            if raw_score > 0: self.logger(f"Final Board Evaluation ({perspective_str}): Mate in {raw_score}", "user")
+                            else: self.logger(f"Final Board Evaluation ({perspective_str}): Mated in {abs(raw_score)}", "user")
+                        else:
+                            eval_pawn_units = raw_score / 100.0
+                            self.logger(f"Final Board Evaluation ({perspective_str}): {eval_pawn_units:+.2f}", "user")
+                    break
                 else:
-                    self.logger("Engine did not return a valid move. Stopping.", "user"); break
+                    self.logger("Engine did not return a valid best move. Stopping.", "user"); break
         except Exception as e:
             self.logger(f"Critical error in auto-play loop: {e}", "user")
         finally:

@@ -26,7 +26,7 @@ DEFAULT_ENGINE_NAME: str = "Ethereal-9.00"
 ENGINE_PATH_LOCAL: str = f'src/{DEFAULT_ENGINE_NAME}' 
 ENGINE_PATH_LOCAL_EXE: str = f"src/{DEFAULT_ENGINE_NAME}.exe"
 
-WINDOW_TITLE: str = "Chess_Bot_v1.3.2" 
+WINDOW_TITLE: str = "Chess_Bot_v1.3.3" 
 DEFAULT_WINDOW_SIZE: str = '450x700'
 DEBUG_WINDOW_SIZE: str = '450x850'
 
