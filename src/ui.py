@@ -389,9 +389,6 @@ class ChessApp(ctk.CTk):
 
 
 if __name__ == "__main__":
-    # This check is primarily for when ui.py might be run directly for testing,
-    # though main.py is the standard entry point.
-    # Ensure BASE_DIR from config.py is correctly determined.
     if not CHESS_USERNAME or not CHESS_PASSWORD:
         env_path_info = os.path.join(BASE_DIR, ".env")
         print(f"CRITICAL: Chess credentials (CHESS_USERNAME, CHESS_PASSWORD) not found in .env file (expected at {env_path_info}).")
