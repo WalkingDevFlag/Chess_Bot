@@ -1,22 +1,14 @@
-import ctypes
-import ctypes.wintypes # For POINT structure
 import time
 import random
 import chess
 from typing import Callable, Optional, Tuple
 
-# Import specific constants needed by this module directly
-from config import BOARD_OFFSET_X, BOARD_OFFSET_Y, SQUARE_PIXEL_SIZE
+# Removed direct import of BOARD_OFFSET_X, BOARD_OFFSET_Y, SQUARE_PIXEL_SIZE
+# Removed MOUSEEVENTF constants and POINT structure
+# Removed _uci_to_screen_coords, _set_cursor_pos, _mouse_click, _make_move_on_screen internal methods
 
-
-# ctypes constants for mouse events
-MOUSEEVENTF_MOVE = 0x0001
-MOUSEEVENTF_ABSOLUTE = 0x8000
-MOUSEEVENTF_LEFTDOWN = 0x0002
-MOUSEEVENTF_LEFTUP = 0x0004
-
-class POINT(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+from input_automation import make_move_on_screen # Uses the new input_automation module
+from chess_utils import uci_to_screen_coords # Uses the new chess_utils module
 
 
 class AutoPlayer:
@@ -33,7 +25,7 @@ class AutoPlayer:
         self.update_internal_board = update_internal_board_cb
         self.logger = add_to_output_cb
         self.get_player_clock = get_player_clock_cb
-        self.get_board_orientation = get_board_orientation_cb
+        self.get_board_orientation = get_board_orientation_cb # Used by uci_to_screen_coords via callback
 
         self.is_playing: bool = False
         self.game_mode: Optional[str] = None
@@ -41,74 +33,10 @@ class AutoPlayer:
 
         self.ui_update_on_stop_cb: Optional[Callable[[], None]] = None
 
-        # pyautogui.FAILSAFE = True # Removed, keyboard_listener.py handles failsafe (e.g., ESC key)
-        # pyautogui.PAUSE = 0.05 # Removed, manual time.sleep will be used
-
     def set_ui_update_on_stop_cb(self, cb: Callable[[], None]):
         self.ui_update_on_stop_cb = cb
 
-    def _uci_to_screen_coords(self, uci_move: str) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
-        try:
-            move = chess.Move.from_uci(uci_move)
-            from_square = move.from_square
-            to_square = move.to_square
-            player_perspective = self.get_board_orientation()
-
-            if not player_perspective:
-                self.logger("Critical: Could not determine board orientation. Using default.", "debug")
-                from config import PLAYER_PERSPECTIVE_DEFAULT_FALLBACK # pylint: disable=import-outside-toplevel
-                player_perspective = PLAYER_PERSPECTIVE_DEFAULT_FALLBACK
-
-            coords = []
-            for square_index in [from_square, to_square]:
-                file_index = chess.square_file(square_index)
-                rank_index = chess.square_rank(square_index)
-                half_square = SQUARE_PIXEL_SIZE / 2
-
-                if player_perspective == "white_bottom":
-                    screen_x = BOARD_OFFSET_X + int(file_index * SQUARE_PIXEL_SIZE + half_square)
-                    screen_y = BOARD_OFFSET_Y + int((7 - rank_index) * SQUARE_PIXEL_SIZE + half_square)
-                elif player_perspective == "black_bottom":
-                    screen_x = BOARD_OFFSET_X + int((7 - file_index) * SQUARE_PIXEL_SIZE + half_square)
-                    screen_y = BOARD_OFFSET_Y + int(rank_index * SQUARE_PIXEL_SIZE + half_square)
-                else:
-                    self.logger(f"Error: Unknown player perspective '{player_perspective}'. Cannot calculate coordinates.", "user")
-                    return None
-                coords.append((screen_x, screen_y))
-
-            return tuple(coords) # type: ignore
-        except Exception as e: # pylint: disable=broad-except
-            self.logger(f"Error converting UCI '{uci_move}' to screen coordinates: {e}", "debug")
-            return None
-
-    def _set_cursor_pos(self, x: int, y: int):
-        ctypes.windll.user32.SetCursorPos(x, y)
-
-    def _mouse_click(self):
-        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-        time.sleep(random.uniform(0.03, 0.07)) # Short delay between down and up
-        ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-
-    def _make_move_on_screen(self, from_sq_coord: Tuple[int, int], to_sq_coord: Tuple[int, int]):
-        try:
-            # Move to the start square and click
-            self._set_cursor_pos(from_sq_coord[0], from_sq_coord[1])
-            time.sleep(random.uniform(0.05, 0.15)) # Simulates pyautogui.moveTo duration
-            self._mouse_click()
-
-            time.sleep(random.uniform(0.05, 0.1)) # Pause between clicks
-
-            # Move to the end square and click
-            self._set_cursor_pos(to_sq_coord[0], to_sq_coord[1])
-            time.sleep(random.uniform(0.05, 0.15)) # Simulates pyautogui.moveTo duration
-            self._mouse_click()
-
-        except Exception as e: # pylint: disable=broad-except
-            self.logger(f"ctypes mouse control error making move: {e}", "user")
-
-
     def _get_move_delay_and_engine_time(self, remaining_time_s: Optional[float]) -> Tuple[float, int]:
-        # Renamed pyautogui_pre_move_delay to pre_move_action_delay for clarity
         pre_move_action_delay: float
         engine_movetime_ms: int
         is_low_time = remaining_time_s is not None and remaining_time_s < 20 # Threshold for "low time"
@@ -161,7 +89,6 @@ class AutoPlayer:
 
                 self.logger(f"Bot's turn ({'White' if self.bot_color == chess.WHITE else 'Black'}). Analyzing...", "debug")
                 remaining_time_s: Optional[float] = self.get_player_clock(self.bot_color) if self.get_player_clock else None
-                # Renamed pyautogui_delay to pre_move_action_delay
                 pre_move_action_delay, engine_movetime_ms = self._get_move_delay_and_engine_time(remaining_time_s)
                 current_fen = self.internal_board.fen()
                 best_move_uci = self.engine_comm.get_best_move(current_fen, movetime_ms=engine_movetime_ms)
@@ -173,25 +100,30 @@ class AutoPlayer:
                         move_obj = self.internal_board.parse_uci(best_move_uci)
                         move_san = self.internal_board.san(move_obj)
                         self.logger(f"Engine suggests: {move_san} (UCI: {best_move_uci})", "user")
-                        coords = self._uci_to_screen_coords(best_move_uci)
+                        
+                        # Use uci_to_screen_coords from chess_utils.py
+                        coords = uci_to_screen_coords(best_move_uci, self.get_board_orientation, self.logger)
+                        
                         if coords:
                             from_coord, to_coord = coords
                             self.logger(f"Making move {best_move_uci} after {pre_move_action_delay:.2f}s delay.", "debug")
                             time.sleep(pre_move_action_delay) # This is the "human" delay before acting
                             if not self.is_playing: break
-                            self._make_move_on_screen(from_coord, to_coord)
+                            
+                            # Use make_move_on_screen from input_automation.py
+                            make_move_on_screen(from_coord, to_coord, self.logger)
+                            
                             time.sleep(random.uniform(0.2, 0.5)) # Pause for UI to update/opponent
                         else:
                             self.logger(f"Could not get screen coords for {best_move_uci}. Stopping.", "user"); break
                     except ValueError:
                         self.logger(f"Engine proposed illegal move {best_move_uci} for FEN {current_fen}. Stopping.", "user"); break
-                    except Exception as e:
+                    except Exception as e: # pylint: disable=broad-except
                         self.logger(f"Unexpected error processing/making move {best_move_uci}: {e}", "user"); break
                 elif best_move_uci == "(none)":
                     self.logger("Engine returned (none) - game might be over or no legal moves. Stopping.", "user"); break
                 else:
                     self.logger("Engine did not return a valid best move. Stopping.", "user"); break
-        # Removed pyautogui.FailSafeException as pyautogui is no longer used for this
         except Exception as e: # pylint: disable=broad-except
             self.logger(f"Critical error in auto-play loop: {e}", "user")
         finally:
