@@ -3,13 +3,9 @@ import random
 import chess
 from typing import Callable, Optional, Tuple
 
-# Removed direct import of BOARD_OFFSET_X, BOARD_OFFSET_Y, SQUARE_PIXEL_SIZE
-# Removed MOUSEEVENTF constants and POINT structure
-# Removed _uci_to_screen_coords, _set_cursor_pos, _mouse_click, _make_move_on_screen internal methods
-
-from input_automation import make_move_on_screen # Uses the new input_automation module
-from chess_utils import uci_to_screen_coords # Uses the new chess_utils module
-
+from chess_utils import uci_to_screen_coords
+# Updated import: input_automation now provides higher-level actions
+import input_automation # No longer importing individual functions like make_move_on_screen
 
 class AutoPlayer:
     def __init__(self,
@@ -18,20 +14,22 @@ class AutoPlayer:
                  update_internal_board_cb: Callable[[], bool],
                  add_to_output_cb: Callable[[str, str], None],
                  get_player_clock_cb: Callable[[chess.Color], Optional[float]],
-                 get_board_orientation_cb: Callable[[], str] # Expected to return "white_bottom" or "black_bottom"
+                 get_board_orientation_cb: Callable[[], str]
                 ):
         self.engine_comm = engine_communicator
         self.internal_board = internal_board_ref
         self.update_internal_board = update_internal_board_cb
-        self.logger = add_to_output_cb
+        self.logger = add_to_output_cb # This logger is passed to input_automation
         self.get_player_clock = get_player_clock_cb
-        self.get_board_orientation = get_board_orientation_cb # Used by uci_to_screen_coords via callback
+        self.get_board_orientation = get_board_orientation_cb
 
         self.is_playing: bool = False
         self.game_mode: Optional[str] = None
         self.bot_color: Optional[chess.Color] = None
-
         self.ui_update_on_stop_cb: Optional[Callable[[], None]] = None
+
+        # The logger is now initialized into input_automation globally via ui.py
+        # No need to pass it per call to input_automation functions if it's set globally.
 
     def set_ui_update_on_stop_cb(self, cb: Callable[[], None]):
         self.ui_update_on_stop_cb = cb
@@ -39,7 +37,7 @@ class AutoPlayer:
     def _get_move_delay_and_engine_time(self, remaining_time_s: Optional[float]) -> Tuple[float, int]:
         pre_move_action_delay: float
         engine_movetime_ms: int
-        is_low_time = remaining_time_s is not None and remaining_time_s < 20 # Threshold for "low time"
+        is_low_time = remaining_time_s is not None and remaining_time_s < 20
 
         if self.game_mode == "bullet":
             engine_movetime_ms = random.randint(70, 120)
@@ -50,12 +48,36 @@ class AutoPlayer:
         else: # Default fallback
             engine_movetime_ms = 500
             base_delay_min, base_delay_max = (0.5, 1.0)
-
         pre_move_action_delay = random.uniform(base_delay_min, base_delay_max)
-
         self.logger(f"Mode: {self.game_mode}, Clock: {remaining_time_s if remaining_time_s is not None else 'N/A'}. "
                     f"Human Delay: {pre_move_action_delay:.2f}s, Engine Time: {engine_movetime_ms}ms", "debug")
         return pre_move_action_delay, engine_movetime_ms
+
+    def _make_move_on_screen(self, from_sq_coord: Tuple[int, int], to_sq_coord: Tuple[int, int]):
+        """
+        Makes a chess move on screen (e.g., e2 to e4) by moving to and clicking
+        the start square, then moving to and clicking the end square.
+        Uses Perlin noise for mouse movements if enabled.
+        """
+        try:
+            self.logger(f"Performing screen move from {from_sq_coord} to {to_sq_coord}", "debug")
+
+            # Action on the 'from' square
+            input_automation.perform_mouse_action_at(
+                from_sq_coord[0], from_sq_coord[1], action="move_and_click"
+            )
+
+            time.sleep(random.uniform(0.05, 0.12)) # Small pause between the two clicks
+
+            # Action on the 'to' square
+            input_automation.perform_mouse_action_at(
+                to_sq_coord[0], to_sq_coord[1], action="move_and_click"
+            )
+            self.logger(f"Screen move executed.", "debug")
+
+        except Exception as e:
+            self.logger(f"Error making move on screen: {e}", "user")
+
 
     def start_playing(self, mode: str, bot_plays_as_color: chess.Color):
         if self.is_playing:
@@ -77,9 +99,9 @@ class AutoPlayer:
         self.logger(f"Auto-play loop initiated for {self.game_mode}.", "debug")
         try:
             while self.is_playing:
-                time.sleep(0.05) # General loop delay
+                time.sleep(0.05)
                 if not self.update_internal_board():
-                    self.logger("Board update failed (all scraped moves failed). Retrying...", "debug")
+                    self.logger("Board update failed. Retrying...", "debug")
                     time.sleep(1); continue
                 if self.internal_board.is_game_over():
                     self.logger(f"Game over: {self.internal_board.result()}. Stopping auto-play.", "user")
@@ -88,7 +110,7 @@ class AutoPlayer:
                     time.sleep(0.2); continue
 
                 self.logger(f"Bot's turn ({'White' if self.bot_color == chess.WHITE else 'Black'}). Analyzing...", "debug")
-                remaining_time_s: Optional[float] = self.get_player_clock(self.bot_color) if self.get_player_clock else None
+                remaining_time_s = self.get_player_clock(self.bot_color) if self.get_player_clock else None
                 pre_move_action_delay, engine_movetime_ms = self._get_move_delay_and_engine_time(remaining_time_s)
                 current_fen = self.internal_board.fen()
                 best_move_uci = self.engine_comm.get_best_move(current_fen, movetime_ms=engine_movetime_ms)
@@ -101,30 +123,28 @@ class AutoPlayer:
                         move_san = self.internal_board.san(move_obj)
                         self.logger(f"Engine suggests: {move_san} (UCI: {best_move_uci})", "user")
                         
-                        # Use uci_to_screen_coords from chess_utils.py
                         coords = uci_to_screen_coords(best_move_uci, self.get_board_orientation, self.logger)
                         
                         if coords:
                             from_coord, to_coord = coords
                             self.logger(f"Making move {best_move_uci} after {pre_move_action_delay:.2f}s delay.", "debug")
-                            time.sleep(pre_move_action_delay) # This is the "human" delay before acting
+                            time.sleep(pre_move_action_delay)
                             if not self.is_playing: break
                             
-                            # Use make_move_on_screen from input_automation.py
-                            make_move_on_screen(from_coord, to_coord, self.logger)
+                            self._make_move_on_screen(from_coord, to_coord) # Uses Perlin if enabled
                             
-                            time.sleep(random.uniform(0.2, 0.5)) # Pause for UI to update/opponent
+                            time.sleep(random.uniform(0.2, 0.5)) 
                         else:
                             self.logger(f"Could not get screen coords for {best_move_uci}. Stopping.", "user"); break
                     except ValueError:
                         self.logger(f"Engine proposed illegal move {best_move_uci} for FEN {current_fen}. Stopping.", "user"); break
-                    except Exception as e: # pylint: disable=broad-except
+                    except Exception as e:
                         self.logger(f"Unexpected error processing/making move {best_move_uci}: {e}", "user"); break
                 elif best_move_uci == "(none)":
-                    self.logger("Engine returned (none) - game might be over or no legal moves. Stopping.", "user"); break
+                    self.logger("Engine returned (none). Stopping.", "user"); break
                 else:
-                    self.logger("Engine did not return a valid best move. Stopping.", "user"); break
-        except Exception as e: # pylint: disable=broad-except
+                    self.logger("Engine did not return a valid move. Stopping.", "user"); break
+        except Exception as e:
             self.logger(f"Critical error in auto-play loop: {e}", "user")
         finally:
             self.is_playing = False
